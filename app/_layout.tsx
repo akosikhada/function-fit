@@ -1,0 +1,154 @@
+import { DefaultTheme, ThemeProvider } from "@react-navigation/native";
+import { useFonts } from "expo-font";
+import { Stack, useRouter, useSegments } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
+import { StatusBar } from "expo-status-bar";
+import React, { useEffect, useState } from "react";
+import "react-native-reanimated";
+import "../global.css";
+import { Platform } from "react-native";
+import { getSession } from "./utils/auth";
+import { supabase } from "./utils/supabase";
+import { Slot } from "expo-router";
+import { User } from "@supabase/supabase-js";
+
+// Prevent the splash screen from auto-hiding before asset loading is complete.
+SplashScreen.preventAutoHideAsync();
+
+function useProtectedRoute(user: User | null) {
+	const segments = useSegments();
+	const router = useRouter();
+	const [isNavigationReady, setIsNavigationReady] = useState(false);
+
+	useEffect(() => {
+		if (!isNavigationReady) return;
+
+		const inPublicGroup = ["welcome", "signin", "signup"].includes(
+			segments[0] as string
+		);
+
+		if (!user && !inPublicGroup) {
+			// If user is not signed in and not on a public screen, redirect to welcome
+			router.replace("/welcome");
+		} else if (user && inPublicGroup) {
+			// If user is signed in and on a public screen, redirect to home
+			router.replace("/");
+		}
+	}, [user, segments, isNavigationReady]);
+
+	useEffect(() => {
+		setIsNavigationReady(true);
+	}, []);
+}
+
+export default function RootLayout() {
+	const [loaded] = useFonts({
+		SpaceMono: require("../assets/fonts/SpaceMono-Regular.ttf"),
+	});
+	const [user, setUser] = useState<User | null>(null);
+	const [isLoading, setIsLoading] = useState(true);
+
+	useEffect(() => {
+		if (process.env.EXPO_PUBLIC_TEMPO && Platform.OS === "web") {
+			const { TempoDevtools } = require("tempo-devtools");
+			TempoDevtools.init();
+		}
+	}, []);
+
+	useEffect(() => {
+		// Check if the user is authenticated
+		const checkUser = async () => {
+			try {
+				const session = await getSession();
+				setUser(session?.user || null);
+				setIsLoading(false);
+			} catch (error) {
+				console.error("Error checking auth:", error);
+				setUser(null);
+				setIsLoading(false);
+			}
+		};
+
+		checkUser();
+
+		// Set up auth state listener
+		const { data: authListener } = supabase.auth.onAuthStateChange(
+			async (event, session) => {
+				setUser(session?.user || null);
+			}
+		);
+
+		return () => {
+			if (authListener && authListener.subscription) {
+				authListener.subscription.unsubscribe();
+			}
+		};
+	}, []);
+
+	useEffect(() => {
+		if (loaded) {
+			SplashScreen.hideAsync();
+		}
+	}, [loaded]);
+
+	// Use the custom hook to protect routes
+	useProtectedRoute(user);
+
+	if (!loaded || isLoading) {
+		return <Slot />;
+	}
+
+	return (
+		<ThemeProvider value={DefaultTheme}>
+			{/* Handle all navigation through Stack */}
+			<Stack
+				screenOptions={{
+					headerShown: false,
+					// Speed up navigation between screens
+					animation: "slide_from_right",
+					animationDuration: 100,
+					// Disable gestureEnabled to prevent unwanted interactions
+					gestureEnabled: false,
+					// These options help with performance
+					animationTypeForReplace: "push",
+					presentation: "card",
+				}}
+			>
+				{/* Auth screens */}
+				<Stack.Screen
+					name="welcome"
+					options={{
+						headerShown: false,
+						gestureEnabled: false,
+					}}
+				/>
+				<Stack.Screen
+					name="signin"
+					options={{
+						headerShown: true,
+						headerTitle: "Sign In",
+						gestureEnabled: false,
+						// Fix navigation between auth screens
+						animation: "slide_from_right",
+					}}
+				/>
+				<Stack.Screen
+					name="signup"
+					options={{
+						headerShown: true,
+						headerTitle: "Sign Up",
+						gestureEnabled: false,
+						// Fix navigation between auth screens
+						animation: "slide_from_right",
+					}}
+				/>
+				{/* Main app screens */}
+				<Stack.Screen name="index" options={{ headerShown: false }} />
+				<Stack.Screen name="plan/index" options={{ headerShown: false }} />
+				<Stack.Screen name="progress/index" options={{ headerShown: false }} />
+				<Stack.Screen name="settings/index" options={{ headerShown: false }} />
+			</Stack>
+			<StatusBar style="auto" />
+		</ThemeProvider>
+	);
+}
