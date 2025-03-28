@@ -12,6 +12,8 @@ import {
 	Platform,
 	useWindowDimensions,
 	ActivityIndicator,
+	useColorScheme,
+	Switch,
 } from "react-native";
 import { Stack, router } from "expo-router";
 import {
@@ -41,14 +43,23 @@ import {
 	Weight,
 	Image as ImageIcon,
 	Camera,
+	Moon,
+	Sun,
+	Check,
 } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { logout, deleteUserAccount } from "../utils/auth";
 import { getUser, getUserProfile, updateUserProfile } from "../utils/supabase";
+import {
+	uploadImageToSupabase,
+	deleteOldProfileImages,
+} from "../utils/uploadUtils";
 import BottomNavigation from "../components/BottomNavigation";
 import Toast from "../components/Toast";
 import * as ImagePicker from "expo-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import ThemeModule from "../utils/theme";
+const { useTheme } = ThemeModule;
 
 interface UserProfile {
 	username: string;
@@ -76,18 +87,21 @@ export default function SettingsScreen() {
 	const isSmallDevice = width < 380;
 	const isMediumDevice = width >= 380 && width < 600;
 	const isLargeDevice = width >= 600;
+	const { theme: currentTheme, setTheme, colors } = useTheme();
+	const deviceTheme = useColorScheme() || "light";
+	const isDarkMode = currentTheme === "dark";
 
 	const iconSize = isSmallDevice ? 20 : 24;
 	const avatarSize = isSmallDevice ? 48 : isLargeDevice ? 80 : 56;
 	const textSizeClass = isSmallDevice ? "text-sm" : "text-base";
 	const headerTextClass = isSmallDevice ? "text-lg" : "text-xl";
-	const sectionPadding = isSmallDevice ? "p-3" : "p-4";
 	const containerPadding = isSmallDevice ? "px-3" : "px-4";
+	const sectionPadding = isSmallDevice ? "p-3" : "p-4";
 
 	const [userProfile, setUserProfile] = React.useState<UserProfile>({
-		username: "Alex Parker",
-		fullName: "Alex Parker",
-		email: "alex.parker@email.com",
+		username: "",
+		fullName: "",
+		email: "",
 		birthday: "March 15, 1990",
 		gender: "Male",
 		height: "175 cm",
@@ -102,46 +116,114 @@ export default function SettingsScreen() {
 			monthlyDistance: { current: 45, target: 50 },
 			weightGoal: { current: 68, target: 65 },
 		},
-		avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=alex.parker@email.com`,
+		avatarUrl: "",
 	});
 	const [editModalVisible, setEditModalVisible] = React.useState(false);
 	const [editedProfile, setEditedProfile] = React.useState<
 		Partial<UserProfile>
 	>({});
 	const [isLoading, setIsLoading] = React.useState(false);
+	const [profileLoading, setProfileLoading] = React.useState(true);
 	const [errorMessage, setErrorMessage] = React.useState("");
 	const [showError, setShowError] = React.useState(false);
 	const [uploadingImage, setUploadingImage] = React.useState(false);
+	const [themeModalVisible, setThemeModalVisible] = React.useState(false);
 
+	// First, load data from AsyncStorage immediately
+	React.useEffect(() => {
+		const loadCachedProfile = async () => {
+			try {
+				const user = await getUser();
+				if (!user) return;
+
+				// Get user-specific cached data
+				const cachedProfileKey = `userProfile-${user.id}`;
+				const cachedProfile = await AsyncStorage.getItem(cachedProfileKey);
+
+				if (cachedProfile) {
+					const cachedData = JSON.parse(cachedProfile);
+					// Only update if we have data
+					if (cachedData.username || cachedData.email || cachedData.avatarUrl) {
+						setUserProfile((prev) => ({
+							...prev,
+							username: cachedData.username || prev.username,
+							email: cachedData.email || prev.email,
+							avatarUrl: cachedData.avatarUrl || prev.avatarUrl,
+						}));
+					}
+				}
+			} catch (error) {
+				console.log("Error loading cached profile:", error);
+			}
+		};
+
+		loadCachedProfile();
+	}, []);
+
+	// Then load from the API
 	React.useEffect(() => {
 		console.log("Settings screen mounted");
 		const loadUserProfile = async () => {
+			setProfileLoading(true);
 			try {
 				const user = await getUser();
 				if (user) {
+					// Load authenticated user data first to get email
+					setUserProfile((prev) => ({
+						...prev,
+						email: user.email || prev.email,
+						username: prev.username || user.email?.split("@")[0] || "",
+					}));
+
 					const profile = await getUserProfile(user.id);
 					if (profile) {
+						// Load from AsyncStorage with user-specific key
+						const cachedProfileKey = `userProfile-${user.id}`;
+						const cachedProfile = await AsyncStorage.getItem(cachedProfileKey);
+						let cachedData = null;
+
+						if (cachedProfile) {
+							cachedData = JSON.parse(cachedProfile);
+						}
+
 						const updatedProfile: UserProfile = {
 							...userProfile,
 							username: profile.username || user.email?.split("@")[0] || "",
 							email: user.email || "",
 							height: profile.height ? `${profile.height} cm` : "175 cm",
 							weight: profile.weight ? `${profile.weight} kg` : "68 kg",
+							// Prioritize Supabase data, then cached data
 							avatarUrl:
 								profile.avatar_url ||
+								cachedData?.avatarUrl ||
 								`https://api.dicebear.com/7.x/avataaars/svg?seed=${user.email}`,
 						};
 						setUserProfile(updatedProfile);
+
+						// Update cache with the latest data
+						await AsyncStorage.setItem(
+							cachedProfileKey,
+							JSON.stringify({
+								userId: user.id,
+								username: updatedProfile.username,
+								email: updatedProfile.email,
+								avatarUrl: updatedProfile.avatarUrl,
+							})
+						);
 					}
 				}
 			} catch (error) {
 				console.error("Error loading user profile:", error);
 				showErrorToast("Failed to load profile data");
+			} finally {
+				setProfileLoading(false);
 			}
 		};
 
 		loadUserProfile();
 	}, []);
+
+	// No need to load theme preferences here anymore as they are handled by the theme context
 
 	const showErrorToast = (message: string) => {
 		setErrorMessage(message);
@@ -198,7 +280,7 @@ export default function SettingsScreen() {
 			}
 
 			const result = await ImagePicker.launchImageLibraryAsync({
-				mediaTypes: "images",
+				mediaTypes: "images", // This will be automatically handled
 				allowsEditing: true,
 				aspect: [1, 1],
 				quality: 0.5,
@@ -212,23 +294,76 @@ export default function SettingsScreen() {
 					throw new Error("User not authenticated");
 				}
 
-				// Update both the edited profile and visible profile immediately
-				const newAvatarUrl = result.assets[0].uri;
+				// Get local URI
+				const imageUri = result.assets[0].uri;
+
+				// Upload to Supabase using user-specific path
+				const avatarUrl = await uploadImageToSupabase(
+					imageUri,
+					"avatars",
+					"public",
+					user.id
+				);
+
+				// Always update the profile with whatever URL we got back
+				try {
+					await updateUserProfile(user.id, {
+						avatar_url: avatarUrl,
+					});
+				} catch (profileError) {
+					console.log("Profile update error (non-critical):", profileError);
+					// Continue even if profile update fails
+				}
+
+				// Always update local state
 				setEditedProfile((prev) => ({
 					...prev,
-					avatarUrl: newAvatarUrl,
+					avatarUrl: avatarUrl,
 				}));
 
 				setUserProfile((prev) => ({
 					...prev,
-					avatarUrl: newAvatarUrl,
+					avatarUrl: avatarUrl,
 				}));
 
-				setUploadingImage(false);
+				// Cache the updated avatar URL with user-specific key
+				try {
+					const userKey = `userProfile-${user.id}`;
+					const cachedProfile = await AsyncStorage.getItem(userKey);
+					if (cachedProfile) {
+						const parsed = JSON.parse(cachedProfile);
+						await AsyncStorage.setItem(
+							userKey,
+							JSON.stringify({
+								...parsed,
+								avatarUrl: avatarUrl,
+							})
+						);
+					} else {
+						// Create new cache entry if none exists
+						await AsyncStorage.setItem(
+							userKey,
+							JSON.stringify({
+								userId: user.id,
+								avatarUrl: avatarUrl,
+							})
+						);
+					}
+				} catch (cacheError) {
+					console.error("Error caching profile:", cacheError);
+				}
+
+				// Try to clean up old images (non-critical)
+				try {
+					await deleteOldProfileImages("avatars", user.id);
+				} catch (cleanupError) {
+					console.log("Cleanup error (non-critical):", cleanupError);
+				}
 			}
 		} catch (error) {
-			console.error("Error picking image:", error);
-			showErrorToast("Error selecting image");
+			console.error("Error picking/uploading image:", error);
+			showErrorToast("Error updating profile picture");
+		} finally {
 			setUploadingImage(false);
 		}
 	};
@@ -242,25 +377,41 @@ export default function SettingsScreen() {
 				throw new Error("User not authenticated");
 			}
 
-			// Validate email format
-			const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+			// Validate email format with a more strict regex
+			const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 			if (editedProfile.email && !emailRegex.test(editedProfile.email)) {
 				throw new Error("Please enter a valid email address");
 			}
 
-			// Update the profile in the database - only sending fields that exist in the database
-			await updateUserProfile(user.id, {
+			// Create a copy of the profile to update
+			const profileToUpdate: any = {
 				username: editedProfile.username,
-				email: editedProfile.email,
-				avatar_url: editedProfile.avatarUrl,
-			});
+			};
+
+			// Only include email if it changed and is valid
+			if (
+				editedProfile.email &&
+				editedProfile.email !== userProfile.email &&
+				emailRegex.test(editedProfile.email)
+			) {
+				profileToUpdate.email = editedProfile.email;
+			}
+
+			// Include avatar if available
+			if (editedProfile.avatarUrl) {
+				profileToUpdate.avatar_url = editedProfile.avatarUrl;
+			}
+
+			// Update the profile in the database - only sending fields that exist in the database
+			await updateUserProfile(user.id, profileToUpdate);
 
 			// Update the local state
 			const updatedProfile = {
 				...userProfile,
 				username: editedProfile.username || userProfile.username,
 				fullName: editedProfile.fullName || userProfile.fullName,
-				email: editedProfile.email || userProfile.email,
+				// Don't update email locally if it wasn't included in the update
+				email: profileToUpdate.email || userProfile.email,
 				birthday: editedProfile.birthday || userProfile.birthday,
 				gender: editedProfile.gender || userProfile.gender,
 				height: `${
@@ -274,16 +425,36 @@ export default function SettingsScreen() {
 
 			setUserProfile(updatedProfile);
 
-			// Cache the updated profile for persistence
-			await AsyncStorage.setItem("userProfile", JSON.stringify(updatedProfile));
+			// Cache the updated profile for persistence with user-specific key
+			await AsyncStorage.setItem(
+				`userProfile-${user.id}`,
+				JSON.stringify(updatedProfile)
+			);
 
 			Alert.alert("Success", "Profile updated successfully");
 			setEditModalVisible(false);
 		} catch (error) {
 			console.error("Error updating profile:", error);
 			// Create a user-friendly error message
-			const errorMsg = (error as Error).message;
-			showErrorToast(errorMsg || "Failed to update profile");
+			let errorMsg = "Failed to update profile";
+
+			if (error instanceof Error) {
+				// Check for auth API errors
+				if (
+					error.message.includes("Email address") &&
+					error.message.includes("invalid")
+				) {
+					errorMsg =
+						"The email address format is invalid. Please check and try again.";
+				} else if (error.message.includes("Email address")) {
+					errorMsg =
+						"There was a problem with the email address. Please try a different one.";
+				} else {
+					errorMsg = error.message;
+				}
+			}
+
+			showErrorToast(errorMsg);
 		} finally {
 			setIsLoading(false);
 		}
@@ -298,79 +469,180 @@ export default function SettingsScreen() {
 	const renderProgressBar = (current: number, target: number) => {
 		const progress = Math.min((current / target) * 100, 100);
 		return (
-			<View className="h-2 bg-[#F3F4F6] rounded-full w-full mt-2">
-				<LinearGradient
-					colors={["#8B5CF6", "#6366F1"]}
-					start={{ x: 0, y: 0 }}
-					end={{ x: 1, y: 0 }}
+			<View
+				className="h-2 rounded-full w-full mt-2"
+				style={{ backgroundColor: isDarkMode ? "#333333" : "#F3F4F6" }}
+			>
+				<View
 					className="h-full rounded-full"
-					style={{ width: `${progress}%` }}
+					style={{
+						width: `${progress}%`,
+						backgroundColor: isDarkMode ? "#8B5CF6" : "#6366F1",
+					}}
 				/>
 			</View>
 		);
 	};
 
+	const getDisplayTheme = () => {
+		return currentTheme.charAt(0).toUpperCase() + currentTheme.slice(1);
+	};
+
 	return (
-		<SafeAreaView className="flex-1 bg-[#F9FAFB]">
+		<SafeAreaView
+			style={{ backgroundColor: colors.background }}
+			className="flex-1"
+		>
 			<Stack.Screen
 				options={{
 					headerShown: false,
 				}}
 			/>
-			<ScrollView className="flex-1 px-4 pb-16">
+			<ScrollView
+				className="flex-1 pb-16"
+				contentContainerStyle={{
+					paddingHorizontal: isSmallDevice ? 12 : isMediumDevice ? 16 : 24,
+				}}
+			>
 				{/* Profile Header */}
-				<View className="pt-4">
-					<View className="flex-row items-center justify-between bg-white p-4 rounded-xl shadow-sm">
+				<View className="pt-16">
+					<View
+						style={{ backgroundColor: colors.card }}
+						className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm`}
+					>
 						<View className="flex-row items-center">
-							<Image
-								source={{
-									uri: userProfile.avatarUrl,
-								}}
-								className="w-12 h-12 rounded-full"
-							/>
-							<View className="ml-3">
-								<Text className="text-base font-medium">
-									{userProfile.username}
+							{userProfile.avatarUrl ? (
+								<Image
+									source={{
+										uri: userProfile.avatarUrl,
+									}}
+									style={{ width: avatarSize, height: avatarSize }}
+									className="rounded-full"
+								/>
+							) : (
+								<View
+									style={{ width: avatarSize, height: avatarSize }}
+									className="rounded-full bg-gray-200 items-center justify-center"
+								>
+									<User size={isSmallDevice ? 20 : 24} color="#9CA3AF" />
+								</View>
+							)}
+							<View className={`ml-${isSmallDevice ? "2" : "3"}`}>
+								<Text
+									style={{ color: colors.text }}
+									className={`${
+										isSmallDevice ? "text-sm" : "text-base"
+									} font-medium`}
+								>
+									{profileLoading && !userProfile.username
+										? "Loading..."
+										: userProfile.username}
 								</Text>
-								<Text className="text-xs text-gray-500">
-									{userProfile.email}
+								<Text
+									style={{ color: colors.secondaryText }}
+									className="text-xs mt-1"
+								>
+									{profileLoading && !userProfile.email
+										? "Loading..."
+										: userProfile.email}
 								</Text>
 							</View>
 						</View>
-						<TouchableOpacity onPress={handleEditProfile}>
-							<SettingsIcon size={18} color="#6B7280" />
+						<TouchableOpacity
+							onPress={handleEditProfile}
+							className="p-1.5 rounded-full"
+						>
+							<Pencil size={isSmallDevice ? 16 : 18} color="#6366F1" />
 						</TouchableOpacity>
 					</View>
 
 					{/* Stats */}
 					<View className="mt-4">
-						<View className="flex-row justify-between">
-							<View className="flex-1 items-center mr-2">
-								<View className="w-10 h-10 bg-purple-100 rounded-full items-center justify-center mb-2">
-									<Activity size={18} color="#8B5CF6" />
+						<View
+							className={`flex-row justify-between ${
+								isLargeDevice ? "px-8" : ""
+							}`}
+						>
+							<View
+								className={`flex-1 items-center ${
+									isSmallDevice ? "mr-1" : "mr-2"
+								}`}
+							>
+								<View
+									className={`${
+										isSmallDevice ? "w-8 h-8" : "w-10 h-10"
+									} bg-purple-100 rounded-full items-center justify-center mb-2`}
+								>
+									<Activity size={isSmallDevice ? 16 : 18} color="#8B5CF6" />
 								</View>
-								<Text className="text-xl font-bold">
+								<Text
+									style={{ color: colors.text }}
+									className={`${
+										isSmallDevice ? "text-lg" : "text-xl"
+									} font-bold`}
+								>
 									{userProfile.stats.workouts}
 								</Text>
-								<Text className="text-xs text-gray-400 mt-1">Workouts</Text>
+								<Text
+									style={{ color: colors.secondaryText }}
+									className="text-xs mt-1"
+								>
+									Workouts
+								</Text>
 							</View>
-							<View className="flex-1 items-center mx-2">
-								<View className="w-10 h-10 bg-blue-100 rounded-full items-center justify-center mb-2">
-									<Clock size={18} color="#3B82F6" />
+							<View
+								className={`flex-1 items-center ${
+									isSmallDevice ? "mx-1" : "mx-2"
+								}`}
+							>
+								<View
+									className={`${
+										isSmallDevice ? "w-8 h-8" : "w-10 h-10"
+									} bg-blue-100 rounded-full items-center justify-center mb-2`}
+								>
+									<Clock size={isSmallDevice ? 16 : 18} color="#3B82F6" />
 								</View>
-								<Text className="text-xl font-bold">
+								<Text
+									style={{ color: colors.text }}
+									className={`${
+										isSmallDevice ? "text-lg" : "text-xl"
+									} font-bold`}
+								>
 									{userProfile.stats.hours}h
 								</Text>
-								<Text className="text-xs text-gray-400 mt-1">Hours</Text>
+								<Text
+									style={{ color: colors.secondaryText }}
+									className="text-xs mt-1"
+								>
+									Hours
+								</Text>
 							</View>
-							<View className="flex-1 items-center ml-2">
-								<View className="w-10 h-10 bg-orange-100 rounded-full items-center justify-center mb-2">
-									<Flame size={18} color="#F97316" />
+							<View
+								className={`flex-1 items-center ${
+									isSmallDevice ? "ml-1" : "ml-2"
+								}`}
+							>
+								<View
+									className={`${
+										isSmallDevice ? "w-8 h-8" : "w-10 h-10"
+									} bg-orange-100 rounded-full items-center justify-center mb-2`}
+								>
+									<Flame size={isSmallDevice ? 16 : 18} color="#F97316" />
 								</View>
-								<Text className="text-xl font-bold">
+								<Text
+									style={{ color: colors.text }}
+									className={`${
+										isSmallDevice ? "text-lg" : "text-xl"
+									} font-bold`}
+								>
 									{(userProfile.stats.calories / 1000).toFixed(1)}k
 								</Text>
-								<Text className="text-xs text-gray-400 mt-1">Calories</Text>
+								<Text
+									style={{ color: colors.secondaryText }}
+									className="text-xs mt-1"
+								>
+									Calories
+								</Text>
 							</View>
 						</View>
 					</View>
@@ -379,7 +651,12 @@ export default function SettingsScreen() {
 				{/* Achievements */}
 				<View className="mt-6">
 					<View className="flex-row justify-between items-center mb-3">
-						<Text className="text-base font-bold">My Achievements</Text>
+						<Text
+							style={{ color: colors.text }}
+							className={`${headerTextClass} font-bold`}
+						>
+							My Achievements
+						</Text>
 						<TouchableOpacity>
 							<Text className="text-[#8B5CF6] text-sm">View All</Text>
 						</TouchableOpacity>
@@ -389,7 +666,15 @@ export default function SettingsScreen() {
 						showsHorizontalScrollIndicator={false}
 						className="pb-1"
 					>
-						<TouchableOpacity className="mr-3 w-36 h-24 overflow-hidden rounded-xl shadow-sm">
+						<TouchableOpacity
+							className={`mr-3 ${
+								isSmallDevice
+									? "w-32 h-20"
+									: isLargeDevice
+									? "w-44 h-28"
+									: "w-36 h-24"
+							} overflow-hidden rounded-xl shadow-sm`}
+						>
 							<LinearGradient
 								colors={["#8B5CF6", "#6366F1"]}
 								start={{ x: 0, y: 0 }}
@@ -397,17 +682,31 @@ export default function SettingsScreen() {
 								className="p-3 w-full h-full justify-between"
 							>
 								<View className="items-center bg-white/20 self-start p-1 rounded-full">
-									<Trophy size={14} color="#FFF" />
+									<Trophy size={isSmallDevice ? 12 : 14} color="#FFF" />
 								</View>
 								<View>
-									<Text className="text-white font-medium">30 Days Streak</Text>
+									<Text
+										className={`text-white font-medium ${
+											isSmallDevice ? "text-xs" : "text-sm"
+										}`}
+									>
+										30 Days Streak
+									</Text>
 									<Text className="text-white opacity-70 text-xs mt-1">
 										Jan 15
 									</Text>
 								</View>
 							</LinearGradient>
 						</TouchableOpacity>
-						<TouchableOpacity className="mr-3 w-36 h-24 overflow-hidden rounded-xl shadow-sm">
+						<TouchableOpacity
+							className={`mr-3 ${
+								isSmallDevice
+									? "w-32 h-20"
+									: isLargeDevice
+									? "w-44 h-28"
+									: "w-36 h-24"
+							} overflow-hidden rounded-xl shadow-sm`}
+						>
 							<LinearGradient
 								colors={["#6366F1", "#8B5CF6"]}
 								start={{ x: 0, y: 0 }}
@@ -415,10 +714,16 @@ export default function SettingsScreen() {
 								className="p-3 w-full h-full justify-between"
 							>
 								<View className="items-center bg-white/20 self-start p-1 rounded-full">
-									<Award size={14} color="#FFF" />
+									<Award size={isSmallDevice ? 12 : 14} color="#FFF" />
 								</View>
 								<View>
-									<Text className="text-white font-medium">First 5K</Text>
+									<Text
+										className={`text-white font-medium ${
+											isSmallDevice ? "text-xs" : "text-sm"
+										}`}
+									>
+										First 5K
+									</Text>
 									<Text className="text-white opacity-70 text-xs mt-1">
 										Dec 28
 									</Text>
@@ -429,13 +734,23 @@ export default function SettingsScreen() {
 				</View>
 
 				{/* Goals */}
-				<View className="mt-6 bg-white p-4 rounded-xl shadow-sm">
-					<Text className="text-base font-bold mb-4">Current Goals</Text>
+				<View
+					style={{ backgroundColor: colors.card }}
+					className={`mt-6 ${sectionPadding} rounded-xl shadow-sm`}
+				>
+					<Text
+						style={{ color: colors.text }}
+						className={`${headerTextClass} font-bold mb-4`}
+					>
+						Current Goals
+					</Text>
 					<View className="space-y-5">
 						<View>
 							<View className="flex-row justify-between mb-1">
-								<Text className="text-sm">Weekly Workouts</Text>
-								<Text className="text-sm">
+								<Text style={{ color: colors.text }} className={textSizeClass}>
+									Weekly Workouts
+								</Text>
+								<Text style={{ color: colors.text }} className={textSizeClass}>
 									{userProfile.goals.weeklyWorkouts.current} /{" "}
 									{userProfile.goals.weeklyWorkouts.target}
 								</Text>
@@ -447,8 +762,10 @@ export default function SettingsScreen() {
 						</View>
 						<View>
 							<View className="flex-row justify-between mb-1">
-								<Text className="text-sm">Monthly Distance</Text>
-								<Text className="text-sm">
+								<Text style={{ color: colors.text }} className={textSizeClass}>
+									Monthly Distance
+								</Text>
+								<Text style={{ color: colors.text }} className={textSizeClass}>
 									{userProfile.goals.monthlyDistance.current} /{" "}
 									{userProfile.goals.monthlyDistance.target} km
 								</Text>
@@ -460,8 +777,10 @@ export default function SettingsScreen() {
 						</View>
 						<View>
 							<View className="flex-row justify-between mb-1">
-								<Text className="text-sm">Weight Goal</Text>
-								<Text className="text-sm">
+								<Text style={{ color: colors.text }} className={textSizeClass}>
+									Weight Goal
+								</Text>
+								<Text style={{ color: colors.text }} className={textSizeClass}>
 									{userProfile.goals.weightGoal.current} /{" "}
 									{userProfile.goals.weightGoal.target} kg
 								</Text>
@@ -475,79 +794,227 @@ export default function SettingsScreen() {
 				</View>
 
 				{/* Settings List */}
-				<View className="mt-6 space-y-6">
+				<View className="mt-6">
+					<Text
+						style={{ color: colors.text }}
+						className={`${headerTextClass} font-bold mb-4`}
+					>
+						Account &amp; Preferences
+					</Text>
+
 					<TouchableOpacity
-						className="flex-row items-center justify-between"
+						style={{ backgroundColor: colors.card }}
+						className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm mb-3`}
 						onPress={() => handleSettingsNavigation("Account Settings")}
 					>
 						<View className="flex-row items-center">
-							<SettingsIcon size={18} color="#6B7280" />
-							<Text className="ml-3 text-sm">Account Settings</Text>
+							<View
+								className={`${
+									isSmallDevice ? "w-7 h-7" : "w-8 h-8"
+								} bg-indigo-100 rounded-full items-center justify-center`}
+							>
+								<SettingsIcon size={isSmallDevice ? 16 : 18} color="#6366F1" />
+							</View>
+							<Text
+								style={{ color: colors.text }}
+								className={`ml-3 ${textSizeClass} font-medium`}
+							>
+								Account Settings
+							</Text>
 						</View>
-						<ChevronRight size={18} color="#C4C4C4" />
+						<ChevronRight
+							size={isSmallDevice ? 16 : 18}
+							color={colors.secondaryText}
+						/>
 					</TouchableOpacity>
 
 					<TouchableOpacity
-						className="flex-row items-center justify-between"
+						style={{ backgroundColor: colors.card }}
+						className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm mb-3`}
 						onPress={() => handleSettingsNavigation("Notification Preferences")}
 					>
 						<View className="flex-row items-center">
-							<Bell size={18} color="#6B7280" />
-							<Text className="ml-3 text-sm">Notification Preferences</Text>
+							<View
+								className={`${
+									isSmallDevice ? "w-7 h-7" : "w-8 h-8"
+								} bg-blue-100 rounded-full items-center justify-center`}
+							>
+								<Bell size={isSmallDevice ? 16 : 18} color="#3B82F6" />
+							</View>
+							<Text
+								style={{ color: colors.text }}
+								className={`ml-3 ${textSizeClass} font-medium`}
+							>
+								Notification Preferences
+							</Text>
 						</View>
-						<ChevronRight size={18} color="#C4C4C4" />
+						<ChevronRight
+							size={isSmallDevice ? 16 : 18}
+							color={colors.secondaryText}
+						/>
 					</TouchableOpacity>
 
 					<TouchableOpacity
-						className="flex-row items-center justify-between"
+						style={{ backgroundColor: colors.card }}
+						className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm mb-3`}
 						onPress={() => handleSettingsNavigation("Connected Devices")}
 					>
 						<View className="flex-row items-center">
-							<Smartphone size={18} color="#6B7280" />
-							<Text className="ml-3 text-sm">Connected Devices</Text>
+							<View
+								className={`${
+									isSmallDevice ? "w-7 h-7" : "w-8 h-8"
+								} bg-green-100 rounded-full items-center justify-center`}
+							>
+								<Smartphone size={isSmallDevice ? 16 : 18} color="#10B981" />
+							</View>
+							<Text
+								style={{ color: colors.text }}
+								className={`ml-3 ${textSizeClass} font-medium`}
+							>
+								Connected Devices
+							</Text>
 						</View>
-						<ChevronRight size={18} color="#C4C4C4" />
+						<ChevronRight
+							size={isSmallDevice ? 16 : 18}
+							color={colors.secondaryText}
+						/>
 					</TouchableOpacity>
 
 					<TouchableOpacity
-						className="flex-row items-center justify-between"
+						style={{ backgroundColor: colors.card }}
+						className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm mb-3`}
+						onPress={() => setThemeModalVisible(true)}
+					>
+						<View className="flex-row items-center">
+							<View
+								className={`${
+									isSmallDevice ? "w-7 h-7" : "w-8 h-8"
+								} bg-indigo-100 rounded-full items-center justify-center`}
+							>
+								<Moon size={isSmallDevice ? 16 : 18} color="#6366F1" />
+							</View>
+							<Text
+								style={{ color: colors.text }}
+								className={`ml-3 ${textSizeClass} font-medium`}
+							>
+								Theme Preferences
+							</Text>
+						</View>
+						<View className="flex-row items-center">
+							<Text
+								style={{ color: colors.secondaryText }}
+								className="text-sm mr-2"
+							>
+								{getDisplayTheme()}
+							</Text>
+							<ChevronRight
+								size={isSmallDevice ? 16 : 18}
+								color={colors.secondaryText}
+							/>
+						</View>
+					</TouchableOpacity>
+
+					<TouchableOpacity
+						style={{ backgroundColor: colors.card }}
+						className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm mb-3`}
 						onPress={() => handleSettingsNavigation("Privacy Settings")}
 					>
 						<View className="flex-row items-center">
-							<Lock size={18} color="#6B7280" />
-							<Text className="ml-3 text-sm">Privacy Settings</Text>
+							<View
+								className={`${
+									isSmallDevice ? "w-7 h-7" : "w-8 h-8"
+								} bg-purple-100 rounded-full items-center justify-center`}
+							>
+								<Lock size={isSmallDevice ? 16 : 18} color="#8B5CF6" />
+							</View>
+							<Text
+								style={{ color: colors.text }}
+								className={`ml-3 ${textSizeClass} font-medium`}
+							>
+								Privacy Settings
+							</Text>
 						</View>
-						<ChevronRight size={18} color="#C4C4C4" />
+						<ChevronRight
+							size={isSmallDevice ? 16 : 18}
+							color={colors.secondaryText}
+						/>
 					</TouchableOpacity>
 
 					<TouchableOpacity
-						className="flex-row items-center justify-between"
+						style={{ backgroundColor: colors.card }}
+						className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm mb-3`}
 						onPress={() => handleSettingsNavigation("Help & Support")}
 					>
 						<View className="flex-row items-center">
-							<HelpCircle size={18} color="#6B7280" />
-							<Text className="ml-3 text-sm">Help & Support</Text>
+							<View
+								className={`${
+									isSmallDevice ? "w-7 h-7" : "w-8 h-8"
+								} bg-yellow-100 rounded-full items-center justify-center`}
+							>
+								<HelpCircle size={isSmallDevice ? 16 : 18} color="#F59E0B" />
+							</View>
+							<Text
+								style={{ color: colors.text }}
+								className={`ml-3 ${textSizeClass} font-medium`}
+							>
+								Help &amp; Support
+							</Text>
 						</View>
-						<ChevronRight size={18} color="#C4C4C4" />
+						<ChevronRight
+							size={isSmallDevice ? 16 : 18}
+							color={colors.secondaryText}
+						/>
 					</TouchableOpacity>
 
 					<TouchableOpacity
-						className="flex-row items-center"
+						style={{ backgroundColor: colors.card }}
+						className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm mt-10`}
 						onPress={handleLogout}
 					>
-						<LogOut size={18} color="#EF4444" />
-						<Text className="ml-3 text-sm text-red-500">Log Out</Text>
+						<View className="flex-row items-center">
+							<View
+								className={`${
+									isSmallDevice ? "w-7 h-7" : "w-8 h-8"
+								} bg-red-100 rounded-full items-center justify-center`}
+							>
+								<LogOut size={isSmallDevice ? 16 : 18} color="#EF4444" />
+							</View>
+							<Text
+								style={{ color: colors.text }}
+								className={`ml-3 ${textSizeClass} font-medium text-red-500`}
+							>
+								Log Out
+							</Text>
+						</View>
 					</TouchableOpacity>
 				</View>
 
-				<View className="py-6">
-					<Text className="text-center text-xs text-gray-400">
+				<View className={`py-${isSmallDevice ? "8" : "10"} mt-4`}>
+					<Text
+						style={{ color: colors.secondaryText }}
+						className="text-center text-xs"
+					>
 						Version 2.1.0
 					</Text>
-					<View className="flex-row justify-center space-x-6 mt-2">
-						<Text className="text-[#8B5CF6] text-xs">Terms of Service</Text>
-						<Text className="text-[#8B5CF6] text-xs">Privacy Policy</Text>
+					<View
+						className={`flex-row justify-center space-x-${
+							isSmallDevice ? "6" : "8"
+						} mt-3`}
+					>
+						<TouchableOpacity>
+							<Text className="text-[#8B5CF6] text-xs font-medium">
+								Terms of Service
+							</Text>
+						</TouchableOpacity>
+						<TouchableOpacity>
+							<Text className="text-[#8B5CF6] text-xs font-medium">
+								Privacy Policy
+							</Text>
+						</TouchableOpacity>
 					</View>
+
+					{/* Additional bottom padding for navbar */}
+					<View style={{ height: isSmallDevice ? 80 : 100 }} />
 				</View>
 			</ScrollView>
 
@@ -565,16 +1032,30 @@ export default function SettingsScreen() {
 			>
 				<View className="flex-1 bg-black/30 justify-end">
 					<View
-						className={`bg-white rounded-t-3xl ${
+						style={{ backgroundColor: colors.card }}
+						className={`rounded-t-3xl ${
 							isLargeDevice ? "w-3/4 self-center rounded-3xl" : ""
 						}`}
 					>
 						{/* Header */}
-						<View className="flex-row justify-between items-center p-4 border-b border-gray-100">
+						<View
+							style={{ borderBottomColor: colors.border }}
+							className="flex-row justify-between items-center p-4 border-b"
+						>
 							<TouchableOpacity onPress={handleCancel}>
-								<Text className="text-gray-500 font-medium">Cancel</Text>
+								<Text
+									style={{ color: colors.secondaryText }}
+									className="font-medium"
+								>
+									Cancel
+								</Text>
 							</TouchableOpacity>
-							<Text className="text-lg font-bold">Edit Profile</Text>
+							<Text
+								style={{ color: colors.text }}
+								className="text-lg font-bold"
+							>
+								Edit Profile
+							</Text>
 							<TouchableOpacity
 								onPress={handleSaveProfile}
 								disabled={isLoading}
@@ -582,7 +1063,9 @@ export default function SettingsScreen() {
 								{isLoading ? (
 									<ActivityIndicator size="small" color="#8B5CF6" />
 								) : (
-									<Text className="text-indigo-600 font-medium">Save</Text>
+									<Text style={{ color: "#8B5CF6" }} className="font-medium">
+										Save
+									</Text>
 								)}
 							</TouchableOpacity>
 						</View>
@@ -625,16 +1108,22 @@ export default function SettingsScreen() {
 							</View>
 
 							{/* Form Fields */}
-							<View className="space-y-4">
+							<View className="space-y-6">
 								{/* Full Name */}
 								<View>
-									<Text className="text-gray-600 mb-1">Full Name</Text>
+									<Text
+										style={{ color: colors.secondaryText }}
+										className="mb-2"
+									>
+										Full Name
+									</Text>
 									<View className="flex-row items-center border border-gray-300 rounded-lg overflow-hidden">
 										<View className="pl-3 pr-2">
-											<User size={20} color="#6B7280" />
+											<User size={20} color="#8B5CF6" />
 										</View>
 										<TextInput
-											className="flex-1 p-3 text-gray-800"
+											style={{ color: colors.text }}
+											className="flex-1 p-4"
 											placeholder="Enter your full name"
 											value={editedProfile.fullName}
 											onChangeText={(text) =>
@@ -646,13 +1135,19 @@ export default function SettingsScreen() {
 
 								{/* Username */}
 								<View>
-									<Text className="text-gray-600 mb-1">Username</Text>
+									<Text
+										style={{ color: colors.secondaryText }}
+										className="mb-2"
+									>
+										Username
+									</Text>
 									<View className="flex-row items-center border border-gray-300 rounded-lg overflow-hidden">
 										<View className="pl-3 pr-2">
-											<User size={20} color="#6B7280" />
+											<User size={20} color="#8B5CF6" />
 										</View>
 										<TextInput
-											className="flex-1 p-3 text-gray-800"
+											style={{ color: colors.text }}
+											className="flex-1 p-4"
 											placeholder="Choose a username"
 											value={editedProfile.username}
 											onChangeText={(text) =>
@@ -664,33 +1159,60 @@ export default function SettingsScreen() {
 
 								{/* Email */}
 								<View>
-									<Text className="text-gray-600 mb-1">Email</Text>
+									<Text
+										style={{ color: colors.secondaryText }}
+										className="mb-2"
+									>
+										Email
+									</Text>
 									<View className="flex-row items-center border border-gray-300 rounded-lg overflow-hidden">
 										<View className="pl-3 pr-2">
-											<Mail size={20} color="#6B7280" />
+											<Mail size={20} color="#8B5CF6" />
 										</View>
 										<TextInput
-											className="flex-1 p-3 text-gray-800"
+											style={{ color: colors.text }}
+											className="flex-1 p-4"
 											placeholder="Your email address"
 											keyboardType="email-address"
 											autoCapitalize="none"
+											autoCorrect={false}
+											autoComplete="email"
 											value={editedProfile.email}
-											onChangeText={(text) =>
-												setEditedProfile({ ...editedProfile, email: text })
-											}
+											onChangeText={(text) => {
+												// Remove spaces from email as the user types
+												const formattedEmail = text.replace(/\s+/g, "");
+												setEditedProfile({
+													...editedProfile,
+													email: formattedEmail,
+												});
+											}}
 										/>
 									</View>
+									{editedProfile.email &&
+										!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(
+											editedProfile.email
+										) && (
+											<Text className="text-red-500 text-xs mt-1">
+												Please enter a valid email address
+											</Text>
+										)}
 								</View>
 
 								{/* Birthday */}
 								<View>
-									<Text className="text-gray-600 mb-1">Birthday</Text>
+									<Text
+										style={{ color: colors.secondaryText }}
+										className="mb-2"
+									>
+										Birthday
+									</Text>
 									<View className="flex-row items-center border border-gray-300 rounded-lg overflow-hidden">
 										<View className="pl-3 pr-2">
-											<CalendarIcon size={20} color="#6B7280" />
+											<CalendarIcon size={20} color="#8B5CF6" />
 										</View>
 										<TextInput
-											className="flex-1 p-3 text-gray-800"
+											style={{ color: colors.text }}
+											className="flex-1 p-4"
 											placeholder="MM/DD/YYYY"
 											value={editedProfile.birthday}
 											onChangeText={(text) =>
@@ -702,13 +1224,19 @@ export default function SettingsScreen() {
 
 								{/* Gender */}
 								<View>
-									<Text className="text-gray-600 mb-1">Gender</Text>
+									<Text
+										style={{ color: colors.secondaryText }}
+										className="mb-2"
+									>
+										Gender
+									</Text>
 									<View className="flex-row items-center border border-gray-300 rounded-lg overflow-hidden">
 										<View className="pl-3 pr-2">
-											<Users size={20} color="#6B7280" />
+											<Users size={20} color="#8B5CF6" />
 										</View>
 										<TextInput
-											className="flex-1 p-3 text-gray-800"
+											style={{ color: colors.text }}
+											className="flex-1 p-4"
 											placeholder="Male/Female/Other"
 											value={editedProfile.gender}
 											onChangeText={(text) =>
@@ -720,13 +1248,19 @@ export default function SettingsScreen() {
 
 								{/* Height */}
 								<View>
-									<Text className="text-gray-600 mb-1">Height (cm)</Text>
+									<Text
+										style={{ color: colors.secondaryText }}
+										className="mb-2"
+									>
+										Height (cm)
+									</Text>
 									<View className="flex-row items-center border border-gray-300 rounded-lg overflow-hidden">
 										<View className="pl-3 pr-2">
-											<Ruler size={20} color="#6B7280" />
+											<Ruler size={20} color="#8B5CF6" />
 										</View>
 										<TextInput
-											className="flex-1 p-3 text-gray-800"
+											style={{ color: colors.text }}
+											className="flex-1 p-4"
 											placeholder="Height in cm"
 											keyboardType="numeric"
 											value={editedProfile.height}
@@ -739,13 +1273,19 @@ export default function SettingsScreen() {
 
 								{/* Weight */}
 								<View>
-									<Text className="text-gray-600 mb-1">Weight (kg)</Text>
+									<Text
+										style={{ color: colors.secondaryText }}
+										className="mb-2"
+									>
+										Weight (kg)
+									</Text>
 									<View className="flex-row items-center border border-gray-300 rounded-lg overflow-hidden">
 										<View className="pl-3 pr-2">
-											<Weight size={20} color="#6B7280" />
+											<Weight size={20} color="#8B5CF6" />
 										</View>
 										<TextInput
-											className="flex-1 p-3 text-gray-800"
+											style={{ color: colors.text }}
+											className="flex-1 p-4"
 											placeholder="Weight in kg"
 											keyboardType="numeric"
 											value={editedProfile.weight}
@@ -757,6 +1297,133 @@ export default function SettingsScreen() {
 								</View>
 							</View>
 						</ScrollView>
+					</View>
+				</View>
+			</Modal>
+
+			{/* Theme Preferences Modal */}
+			<Modal
+				animationType="slide"
+				transparent={true}
+				visible={themeModalVisible}
+				onRequestClose={() => setThemeModalVisible(false)}
+			>
+				<View className="flex-1 bg-black/50 justify-center items-center">
+					<View
+						style={{ backgroundColor: isDarkMode ? "#000000" : colors.card }}
+						className="rounded-3xl w-[85%] overflow-hidden shadow-lg"
+					>
+						{/* Header */}
+						<View
+							style={{ borderBottomColor: colors.border }}
+							className="flex-row justify-between items-center p-4 border-b"
+						>
+							<TouchableOpacity onPress={() => setThemeModalVisible(false)}>
+								<X
+									size={20}
+									color={isDarkMode ? "#AAAAAA" : colors.secondaryText}
+								/>
+							</TouchableOpacity>
+							<Text
+								style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
+								className="text-lg font-bold"
+							>
+								Theme Preferences
+							</Text>
+							<View style={{ width: 20 }} />
+						</View>
+
+						<View
+							className="p-4 pb-8"
+							style={{ backgroundColor: isDarkMode ? "#000000" : colors.card }}
+						>
+							<Text
+								style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
+								className="font-bold text-base mb-4"
+							>
+								Choose Theme
+							</Text>
+
+							{/* Light Theme Option */}
+							<TouchableOpacity
+								style={{
+									backgroundColor: isDarkMode ? "#000000" : "#F9FAFB",
+									borderColor:
+										currentTheme === "light"
+											? "#8B5CF6"
+											: isDarkMode
+											? "#555555"
+											: "#E5E7EB",
+									borderWidth: 1,
+								}}
+								className="flex-row items-center justify-between p-4 rounded-xl mb-4"
+								onPress={() => setTheme("light")}
+							>
+								<View className="flex-row items-center">
+									<View className="w-10 h-10 bg-yellow-100 rounded-full items-center justify-center">
+										<Sun size={22} color="#F59E0B" />
+									</View>
+									<View className="ml-3">
+										<Text
+											style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
+											className="font-medium"
+										>
+											Light
+										</Text>
+										<Text
+											style={{
+												color: isDarkMode ? "#CCCCCC" : colors.secondaryText,
+											}}
+											className="text-sm"
+										>
+											Default light appearance
+										</Text>
+									</View>
+								</View>
+								{currentTheme === "light" && (
+									<Check color="#8B5CF6" size={20} />
+								)}
+							</TouchableOpacity>
+
+							{/* Dark Theme Option */}
+							<TouchableOpacity
+								style={{
+									backgroundColor: isDarkMode ? "#000000" : "#F9FAFB",
+									borderColor:
+										currentTheme === "dark"
+											? "#8B5CF6"
+											: isDarkMode
+											? "#555555"
+											: "#E5E7EB",
+									borderWidth: 1,
+								}}
+								className="flex-row items-center justify-between p-4 rounded-xl"
+								onPress={() => setTheme("dark")}
+							>
+								<View className="flex-row items-center">
+									<View className="w-10 h-10 bg-[#222222] rounded-full items-center justify-center">
+										<Moon size={22} color="#6366F1" />
+									</View>
+									<View className="ml-3">
+										<Text
+											style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
+											className="font-medium"
+										>
+											Dark
+										</Text>
+										<Text
+											style={{
+												color: isDarkMode ? "#CCCCCC" : colors.secondaryText,
+											}}
+											className="text-sm"
+										>
+											Easier on the eyes in low light
+										</Text>
+									</View>
+								</View>
+								{currentTheme === "dark" && <Check color="#8B5CF6" size={20} />}
+							</TouchableOpacity>
+						</View>
 					</View>
 				</View>
 			</Modal>

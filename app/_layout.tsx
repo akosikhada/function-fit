@@ -1,4 +1,7 @@
-import { DefaultTheme, ThemeProvider } from "@react-navigation/native";
+import {
+	DefaultTheme,
+	ThemeProvider as NavigationThemeProvider,
+} from "@react-navigation/native";
 import { useFonts } from "expo-font";
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -11,6 +14,9 @@ import { getSession } from "./utils/auth";
 import { supabase } from "./utils/supabase";
 import { Slot } from "expo-router";
 import { User } from "@supabase/supabase-js";
+import ThemeModule, { useTheme, lightTheme, darkTheme } from "./utils/theme";
+const { ThemeProvider } = ThemeModule;
+import { useColorScheme } from "react-native";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -39,6 +45,36 @@ function useProtectedRoute(user: User | null) {
 	useEffect(() => {
 		setIsNavigationReady(true);
 	}, []);
+}
+
+// Add a theme-aware component to wrap the app content
+function ThemedApp({ children }: { children: React.ReactNode }) {
+	const { colors, theme } = useTheme();
+	const deviceTheme = useColorScheme() || "light";
+	const isDark = theme === "dark";
+
+	// Create a navigation theme based on current app theme
+	const navigationTheme = {
+		...DefaultTheme,
+		dark: isDark,
+		colors: {
+			...DefaultTheme.colors,
+			background: isDark ? "#000000" : colors.background,
+			card: isDark ? "#1E1E1E" : colors.card,
+			text: isDark ? "#FFFFFF" : colors.text,
+			border: isDark ? "#2A2A2A" : colors.border,
+			primary: colors.accent,
+		},
+	};
+
+	return (
+		<>
+			<NavigationThemeProvider value={navigationTheme}>
+				{children}
+			</NavigationThemeProvider>
+			<StatusBar style={isDark ? "light" : "dark"} />
+		</>
+	);
 }
 
 export default function RootLayout() {
@@ -99,56 +135,63 @@ export default function RootLayout() {
 	}
 
 	return (
-		<ThemeProvider value={DefaultTheme}>
-			{/* Handle all navigation through Stack */}
-			<Stack
-				screenOptions={{
-					headerShown: false,
-					// Speed up navigation between screens
-					animation: "slide_from_right",
-					animationDuration: 100,
-					// Disable gestureEnabled to prevent unwanted interactions
-					gestureEnabled: false,
-					// These options help with performance
-					animationTypeForReplace: "push",
-					presentation: "card",
-				}}
-			>
-				{/* Auth screens */}
-				<Stack.Screen
-					name="welcome"
-					options={{
+		<ThemeProvider>
+			<ThemedApp>
+				{/* Handle all navigation through Stack */}
+				<Stack
+					screenOptions={{
 						headerShown: false,
-						gestureEnabled: false,
-					}}
-				/>
-				<Stack.Screen
-					name="signin"
-					options={{
-						headerShown: true,
-						headerTitle: "Sign In",
-						gestureEnabled: false,
-						// Fix navigation between auth screens
+						// Speed up navigation between screens
 						animation: "slide_from_right",
-					}}
-				/>
-				<Stack.Screen
-					name="signup"
-					options={{
-						headerShown: true,
-						headerTitle: "Sign Up",
+						animationDuration: 100,
+						// Disable gestureEnabled to prevent unwanted interactions
 						gestureEnabled: false,
-						// Fix navigation between auth screens
-						animation: "slide_from_right",
+						// These options help with performance
+						animationTypeForReplace: "push",
+						presentation: "card",
 					}}
-				/>
-				{/* Main app screens */}
-				<Stack.Screen name="index" options={{ headerShown: false }} />
-				<Stack.Screen name="plan/index" options={{ headerShown: false }} />
-				<Stack.Screen name="progress/index" options={{ headerShown: false }} />
-				<Stack.Screen name="settings/index" options={{ headerShown: false }} />
-			</Stack>
-			<StatusBar style="auto" />
+				>
+					{/* Auth screens */}
+					<Stack.Screen
+						name="welcome"
+						options={{
+							headerShown: false,
+							gestureEnabled: false,
+						}}
+					/>
+					<Stack.Screen
+						name="signin"
+						options={{
+							headerShown: true,
+							headerTitle: "Sign In",
+							gestureEnabled: false,
+							// Fix navigation between auth screens
+							animation: "slide_from_right",
+						}}
+					/>
+					<Stack.Screen
+						name="signup"
+						options={{
+							headerShown: true,
+							headerTitle: "Sign Up",
+							gestureEnabled: false,
+							// Fix navigation between auth screens
+							animation: "slide_from_right",
+						}}
+					/>
+					{/* Main app screens */}
+					<Stack.Screen name="index" options={{ headerShown: false }} />
+					<Stack.Screen name="plan/index" options={{ headerShown: false }} />
+					<Stack.Screen
+						name="progress/index"
+						options={{ headerShown: false }}
+					/>
+					<Stack.Screen
+						name="settings/index"
+						options={{ headerShown: false }}
+					/>
+				</Stack>
+			</ThemedApp>
 		</ThemeProvider>
 	);
 }
