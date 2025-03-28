@@ -1,50 +1,37 @@
-# Welcome to your Expo app 👋
+# Function Fit
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+## Overview
 
-## Get started
+Function Fit is a modern fitness application designed to help users achieve their health and wellness goals. The app combines personalized workout planning, progress tracking, and motivational elements to create an engaging fitness experience.
 
-1. Install dependencies
+Built with React Native and Expo, Function Fit offers a seamless cross-platform experience with a clean, intuitive interface. The application leverages Supabase for user authentication and data management, ensuring your fitness data is securely stored and easily accessible across devices.
 
-   ```bash
-   npm install
-   ```
+## ✨ Features
 
-2. Start the app
+- **Personalized Workouts**: Access customized workout plans tailored to your fitness goals
+- **Progress Tracking**: Monitor your steps, calories, and completed workouts
+- **Achievement System**: Stay motivated with streaks and achievements
+- **User Authentication**: Secure login and profile management with Supabase
 
-   ```bash
-    npx expo start
-   ```
+## 🛠️ Tech Stack
 
-In the output, you'll find options to open the app in a
+- **Frontend**: React Native, Expo Router, NativeWind (TailwindCSS)
+- **Backend**: Supabase (PostgreSQL, Authentication, Storage)
+- **State Management**: React Context API
+- **Styling**: TailwindCSS, React Native components
+- **Development**: TypeScript, ESLint
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+## 📝 License
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Get a fresh project
+---
 
-When you're ready, run:
+<div align="center">
 
-```bash
-npm run reset-project
-```
+### Built with passion and expertise by
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+[![akosikhada](https://img.shields.io/badge/GitHub-akosikhada-000000)](https://github.com/akosikhada)
+[![znarf-y](https://img.shields.io/badge/GitHub-znarf--y-000000)](https://github.com/znarf-y)
 
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+</div>
