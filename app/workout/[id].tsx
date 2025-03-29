@@ -6,26 +6,44 @@ import {
 	ScrollView,
 	TouchableOpacity,
 	SafeAreaView,
+	StatusBar,
+	Platform,
 } from "react-native";
 import { useLocalSearchParams, Stack, router } from "expo-router";
-import { ArrowLeft, Clock, Flame, Zap, Play, Pause } from "lucide-react-native";
-import { getWorkoutById, completeWorkout, getUser } from "../utils/supabase";
-import WorkoutTimer from "../components/WorkoutTimer";
+import {
+	ChevronLeft,
+	Clock,
+	Flame,
+	BarChart3,
+	Play,
+	Download,
+	Share2,
+	MoreVertical,
+	AlertCircle,
+} from "lucide-react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import ThemeModule from "../utils/theme";
+import { getWorkoutById } from "../utils/supabase";
+
+const { useTheme } = ThemeModule;
 
 // Define types for the workout
 interface Exercise {
+	id: string;
 	name: string;
-	duration: number;
-	rest: number;
+	duration: string;
+	sets: number;
+	reps: string;
+	rest: string;
 }
 
 interface WorkoutData {
 	id: string;
 	title: string;
 	description: string;
-	duration: number;
-	calories: number;
-	difficulty: string;
+	duration: string;
+	calories: string;
+	level: string;
 	imageUrl: string;
 	exercises: Exercise[];
 }
@@ -37,20 +55,68 @@ const fallbackWorkouts: Record<string, WorkoutData> = {
 		title: "Full Body HIIT",
 		description:
 			"A high-intensity interval training workout that targets your entire body, designed to burn calories and build strength.",
-		duration: 30,
-		calories: 320,
-		difficulty: "Intermediate",
+		duration: "30 mins",
+		calories: "320 cal",
+		level: "Intermediate",
 		imageUrl:
 			"https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=500&q=80",
 		exercises: [
-			{ name: "Jumping Jacks", duration: 45, rest: 15 },
-			{ name: "Push-ups", duration: 45, rest: 15 },
-			{ name: "Mountain Climbers", duration: 45, rest: 15 },
-			{ name: "Squats", duration: 45, rest: 15 },
-			{ name: "Burpees", duration: 45, rest: 15 },
-			{ name: "Plank", duration: 45, rest: 15 },
-			{ name: "Lunges", duration: 45, rest: 15 },
-			{ name: "High Knees", duration: 45, rest: 15 },
+			{
+				id: "1",
+				name: "Jumping Jacks",
+				duration: "45 sec",
+				sets: 1,
+				reps: "45 sec",
+				rest: "15 sec rest",
+			},
+			{
+				id: "2",
+				name: "Push-ups",
+				duration: "45 sec",
+				sets: 1,
+				reps: "45 sec",
+				rest: "15 sec rest",
+			},
+			{
+				id: "3",
+				name: "Mountain Climbers",
+				duration: "45 sec",
+				sets: 1,
+				reps: "45 sec",
+				rest: "15 sec rest",
+			},
+			{
+				id: "4",
+				name: "Squats",
+				duration: "45 sec",
+				sets: 1,
+				reps: "45 sec",
+				rest: "15 sec rest",
+			},
+			{
+				id: "5",
+				name: "Burpees",
+				duration: "45 sec",
+				sets: 1,
+				reps: "45 sec",
+				rest: "15 sec rest",
+			},
+			{
+				id: "6",
+				name: "Plank",
+				duration: "45 sec",
+				sets: 1,
+				reps: "45 sec",
+				rest: "15 sec rest",
+			},
+			{
+				id: "7",
+				name: "Lunges",
+				duration: "45 sec",
+				sets: 1,
+				reps: "45 sec",
+				rest: "15 sec rest",
+			},
 		],
 	},
 	"2": {
@@ -58,37 +124,76 @@ const fallbackWorkouts: Record<string, WorkoutData> = {
 		title: "Core Crusher",
 		description:
 			"Focus on strengthening your core with this targeted ab workout that will help build definition and stability.",
-		duration: 20,
-		calories: 220,
-		difficulty: "Beginner",
+		duration: "20 mins",
+		calories: "220 cal",
+		level: "Beginner",
 		imageUrl:
 			"https://images.unsplash.com/photo-1571019614242-c5c5dee9f50b?w=500&q=80",
 		exercises: [
-			{ name: "Crunches", duration: 45, rest: 15 },
-			{ name: "Plank", duration: 45, rest: 15 },
-			{ name: "Russian Twists", duration: 45, rest: 15 },
-			{ name: "Leg Raises", duration: 45, rest: 15 },
-			{ name: "Mountain Climbers", duration: 45, rest: 15 },
-			{ name: "Bicycle Crunches", duration: 45, rest: 15 },
+			{
+				id: "8",
+				name: "Crunches",
+				duration: "45 sec",
+				sets: 1,
+				reps: "45 sec",
+				rest: "15 sec rest",
+			},
+			{
+				id: "9",
+				name: "Plank",
+				duration: "45 sec",
+				sets: 1,
+				reps: "45 sec",
+				rest: "15 sec rest",
+			},
+			{
+				id: "10",
+				name: "Russian Twists",
+				duration: "45 sec",
+				sets: 1,
+				reps: "45 sec",
+				rest: "15 sec rest",
+			},
+			{
+				id: "11",
+				name: "Leg Raises",
+				duration: "45 sec",
+				sets: 1,
+				reps: "45 sec",
+				rest: "15 sec rest",
+			},
+			{
+				id: "12",
+				name: "Mountain Climbers",
+				duration: "45 sec",
+				sets: 1,
+				reps: "45 sec",
+				rest: "15 sec rest",
+			},
+			{
+				id: "13",
+				name: "Bicycle Crunches",
+				duration: "45 sec",
+				sets: 1,
+				reps: "45 sec",
+				rest: "15 sec rest",
+			},
 		],
 	},
 };
 
-export default function WorkoutDetail() {
+export default function WorkoutDetailScreen() {
 	const { id } = useLocalSearchParams<{ id: string }>();
+	const { theme: currentTheme, colors } = useTheme();
+	const isDarkMode = currentTheme === "dark";
+	const [isOffline, setIsOffline] = useState(true);
 	const [workout, setWorkout] = useState<WorkoutData | null>(null);
-	const [loading, setLoading] = useState<boolean>(true);
-	const [error, setError] = useState<string | null>(null);
-	const [isStarted, setIsStarted] = useState<boolean>(false);
-	const [currentExerciseIndex, setCurrentExerciseIndex] = useState<number>(0);
-	const [workoutCompleted, setWorkoutCompleted] = useState<boolean>(false);
 
 	// Fetch workout data from Supabase
 	React.useEffect(() => {
 		const fetchWorkout = async () => {
 			try {
-				setLoading(true);
-				setError(null);
+				setIsOffline(false);
 
 				// Map numeric IDs to proper UUID format
 				let workoutId = id || "1";
@@ -107,30 +212,30 @@ export default function WorkoutDetail() {
 					id: workoutData.id,
 					title: workoutData.title,
 					description: workoutData.description || "",
-					duration: workoutData.duration,
-					calories: workoutData.calories || 0,
-					difficulty: workoutData.difficulty || "Beginner",
+					duration: workoutData.duration || "Unknown",
+					calories: workoutData.calories || "Unknown",
+					level: workoutData.difficulty || "Beginner",
 					imageUrl:
 						workoutData.image_url ||
 						"https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=500&q=80",
 					exercises:
 						workoutData.exercises?.map((ex: any) => ({
+							id: ex.id,
 							name: ex.name,
-							duration: ex.duration,
-							rest: ex.rest || 15,
+							duration: ex.duration || "Unknown",
+							sets: ex.sets || 1,
+							reps: ex.reps || "Unknown",
+							rest: ex.rest || "Unknown",
 						})) || [],
 				};
 
+				// Set the workout data
 				setWorkout(formattedWorkout);
 			} catch (err) {
 				console.error("Error fetching workout:", err);
 				// Use fallback data if API fails
 				setWorkout(fallbackWorkouts[id || "1"] || fallbackWorkouts["1"]);
-				setError(
-					"Could not load workout data from server. Using offline data."
-				);
-			} finally {
-				setLoading(false);
+				setIsOffline(true);
 			}
 		};
 
@@ -141,221 +246,356 @@ export default function WorkoutDetail() {
 	const currentWorkout: WorkoutData =
 		workout || fallbackWorkouts[id || "1"] || fallbackWorkouts["1"];
 
-	const handleStartWorkout = () => {
-		setIsStarted(!isStarted);
-	};
-
-	const handleNextExercise = async () => {
-		if (currentExerciseIndex < currentWorkout.exercises.length - 1) {
-			setCurrentExerciseIndex(currentExerciseIndex + 1);
-		} else {
-			// Workout complete
-			setIsStarted(false);
-			setWorkoutCompleted(true);
-
-			try {
-				// Get the current user
-				const user = await getUser();
-				if (user) {
-					// Get the workout ID in the correct format
-					let workoutId = currentWorkout.id;
-
-					// If it's just a number, convert to proper UUID format
-					if (/^\d+$/.test(workoutId)) {
-						workoutId = `00000000-0000-0000-0000-00000000000${workoutId}`;
-					}
-
-					// Log the completed workout to Supabase
-					await completeWorkout(
-						user.id,
-						workoutId,
-						currentWorkout.duration,
-						currentWorkout.calories
-					);
-				}
-			} catch (error) {
-				console.error("Error logging completed workout:", error);
-			}
-
-			// Reset and navigate back after a delay
-			setTimeout(() => {
-				setCurrentExerciseIndex(0);
-				setWorkoutCompleted(false);
-				router.push("/");
-			}, 2000);
-		}
-	};
-
-	if (loading) {
-		return (
-			<SafeAreaView className="flex-1 bg-gray-50 items-center justify-center">
-				<Text className="text-gray-600">Loading workout...</Text>
-			</SafeAreaView>
-		);
-	}
-
 	return (
-		<SafeAreaView className="flex-1 bg-gray-50">
-			<Stack.Screen
-				options={{
-					headerShown: false,
-				}}
-			/>
+		<SafeAreaView
+			style={{
+				flex: 1,
+				backgroundColor: colors.background,
+				paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 0,
+			}}
+		>
+			<Stack.Screen options={{ headerShown: false }} />
 
-			<View className="flex-1">
-				{/* Header */}
-				<View className="relative">
+			{/* Main content */}
+			<ScrollView showsVerticalScrollIndicator={false}>
+				{/* Header Image */}
+				<View style={{ position: "relative", height: 240 }}>
 					<Image
 						source={{ uri: currentWorkout.imageUrl }}
-						className="w-full h-56"
+						style={{
+							width: "100%",
+							height: "100%",
+						}}
 						resizeMode="cover"
 					/>
-					<View className="absolute top-0 left-0 right-0 p-4">
-						<TouchableOpacity
-							onPress={() => router.back()}
-							className="bg-white/80 rounded-full p-2 w-10 h-10 items-center justify-center"
+
+					<LinearGradient
+						colors={["rgba(0,0,0,0.6)", "transparent", "rgba(0,0,0,0.8)"]}
+						locations={[0, 0.4, 1]}
+						style={{
+							position: "absolute",
+							width: "100%",
+							height: "100%",
+						}}
+					/>
+
+					{/* Back button */}
+					<TouchableOpacity
+						onPress={() => router.back()}
+						style={{
+							position: "absolute",
+							top: 12,
+							left: 16,
+							backgroundColor: "rgba(0,0,0,0.3)",
+							borderRadius: 20,
+							width: 40,
+							height: 40,
+							alignItems: "center",
+							justifyContent: "center",
+						}}
+					>
+						<ChevronLeft color="#FFFFFF" size={24} />
+					</TouchableOpacity>
+
+					{/* Title and details overlay */}
+					<View
+						style={{
+							position: "absolute",
+							bottom: 0,
+							left: 0,
+							right: 0,
+							padding: 16,
+						}}
+					>
+						<Text
+							style={{
+								color: "#FFFFFF",
+								fontSize: 28,
+								fontWeight: "700",
+								marginBottom: 8,
+								textShadowColor: "rgba(0,0,0,0.5)",
+								textShadowOffset: { width: 0, height: 1 },
+								textShadowRadius: 2,
+							}}
 						>
-							<ArrowLeft size={24} color="#4F46E5" />
-						</TouchableOpacity>
-					</View>
-					<View className="absolute bottom-0 left-0 right-0 bg-black/50 p-4">
-						<Text className="text-white text-2xl font-bold">
 							{currentWorkout.title}
 						</Text>
-						<View className="flex-row mt-2">
-							<View className="flex-row items-center mr-4">
-								<Clock size={16} color="#FFFFFF" />
-								<Text className="text-white ml-1">
-									{currentWorkout.duration} mins
+
+						<View style={{ flexDirection: "row", alignItems: "center" }}>
+							<View
+								style={{
+									flexDirection: "row",
+									alignItems: "center",
+									marginRight: 16,
+								}}
+							>
+								<Clock size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
+								<Text style={{ color: "#FFFFFF", fontSize: 14 }}>
+									{currentWorkout.duration}
 								</Text>
 							</View>
-							<View className="flex-row items-center mr-4">
-								<Flame size={16} color="#FFFFFF" />
-								<Text className="text-white ml-1">
-									{currentWorkout.calories} cal
+
+							<View
+								style={{
+									flexDirection: "row",
+									alignItems: "center",
+									marginRight: 16,
+								}}
+							>
+								<Flame size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
+								<Text style={{ color: "#FFFFFF", fontSize: 14 }}>
+									{currentWorkout.calories}
 								</Text>
 							</View>
-							<View className="flex-row items-center">
-								<Zap size={16} color="#FFFFFF" />
-								<Text className="text-white ml-1">
-									{currentWorkout.difficulty}
+
+							<View
+								style={{
+									flexDirection: "row",
+									alignItems: "center",
+									marginRight: 16,
+								}}
+							>
+								<BarChart3
+									size={14}
+									color="#FFFFFF"
+									style={{ marginRight: 4 }}
+								/>
+								<Text style={{ color: "#FFFFFF", fontSize: 14 }}>
+									{currentWorkout.level}
 								</Text>
 							</View>
 						</View>
 					</View>
 				</View>
 
-				{/* Workout Content */}
-				{!isStarted ? (
-					<ScrollView className="flex-1 p-4">
-						{error && (
-							<View className="bg-yellow-50 p-3 rounded-lg mb-4">
-								<Text className="text-yellow-700">{error}</Text>
-							</View>
-						)}
-
-						<Text className="text-gray-800 text-base mb-4">
-							{currentWorkout.description}
+				{/* Warning banner for offline mode */}
+				{isOffline && (
+					<View
+						style={{
+							backgroundColor: isDarkMode
+								? "rgba(253, 186, 116, 0.2)"
+								: "rgba(255, 237, 213, 1)",
+							padding: 12,
+							flexDirection: "row",
+							alignItems: "center",
+							borderRadius: 0,
+						}}
+					>
+						<AlertCircle
+							size={18}
+							color={isDarkMode ? "#FCD34D" : "#D97706"}
+							style={{ marginRight: 8 }}
+						/>
+						<Text
+							style={{
+								color: isDarkMode ? "#FCD34D" : "#D97706",
+								flex: 1,
+								fontSize: 13,
+							}}
+						>
+							Could not load workout data from server. Using offline data.
 						</Text>
+					</View>
+				)}
 
-						<Text className="text-lg font-semibold text-gray-800 mb-2">
-							Exercises
-						</Text>
-						{currentWorkout.exercises.map((exercise, index) => (
-							<View
-								key={index}
-								className="flex-row items-center py-3 border-b border-gray-200"
-							>
-								<View className="bg-indigo-100 rounded-full w-8 h-8 items-center justify-center mr-3">
-									<Text className="text-indigo-600 font-semibold">
+				{/* Workout description */}
+				<View style={{ padding: 16 }}>
+					<Text
+						style={{
+							color: colors.text,
+							fontSize: 15,
+							lineHeight: 22,
+							marginBottom: 20,
+						}}
+					>
+						{currentWorkout.description}
+					</Text>
+				</View>
+
+				{/* Exercises Section */}
+				<View style={{ paddingHorizontal: 16 }}>
+					<Text
+						style={{
+							color: colors.text,
+							fontSize: 18,
+							fontWeight: "700",
+							marginBottom: 16,
+						}}
+					>
+						Exercises
+					</Text>
+
+					{/* Exercise list */}
+					{currentWorkout.exercises.map((exercise, index) => (
+						<View
+							key={exercise.id}
+							style={{
+								marginBottom: 16,
+								padding: 16,
+								backgroundColor: isDarkMode ? colors.card : "#FFFFFF",
+								borderRadius: 16,
+								shadowColor: "#000",
+								shadowOffset: { width: 0, height: 2 },
+								shadowOpacity: isDarkMode ? 0.2 : 0.1,
+								shadowRadius: 3,
+								elevation: 2,
+								borderWidth: isDarkMode ? 1 : 0,
+								borderColor: isDarkMode
+									? "rgba(255,255,255,0.1)"
+									: "transparent",
+							}}
+						>
+							<View style={{ flexDirection: "row", alignItems: "center" }}>
+								{/* Exercise number circle */}
+								<View
+									style={{
+										width: 40,
+										height: 40,
+										borderRadius: 20,
+										backgroundColor: isDarkMode ? "#4B5563" : "#E5E7EB",
+										alignItems: "center",
+										justifyContent: "center",
+										marginRight: 16,
+									}}
+								>
+									<Text
+										style={{
+											color: isDarkMode ? "#FFFFFF" : "#374151",
+											fontSize: 16,
+											fontWeight: "600",
+										}}
+									>
 										{index + 1}
 									</Text>
 								</View>
-								<View className="flex-1">
-									<Text className="text-gray-800 font-medium">
+
+								{/* Exercise details */}
+								<View style={{ flex: 1 }}>
+									<Text
+										style={{
+											color: colors.text,
+											fontSize: 16,
+											fontWeight: "600",
+											marginBottom: 4,
+										}}
+									>
 										{exercise.name}
 									</Text>
-									<Text className="text-gray-500 text-sm">
-										{exercise.duration} sec • {exercise.rest} sec rest
+									<Text
+										style={{
+											color: colors.secondaryText,
+											fontSize: 14,
+										}}
+									>
+										{exercise.reps} • {exercise.rest}
 									</Text>
 								</View>
 							</View>
-						))}
+						</View>
+					))}
+				</View>
 
-						<TouchableOpacity
-							onPress={handleStartWorkout}
-							className="bg-indigo-600 rounded-lg py-4 items-center justify-center mt-6 mb-10"
+				{/* Start workout button - with extra padding for safe area */}
+				<View style={{ padding: 16, paddingBottom: 32 }}>
+					<TouchableOpacity
+						style={{
+							backgroundColor: isDarkMode ? "#7C3AED" : "#6366F1",
+							borderRadius: 12,
+							paddingVertical: 16,
+							alignItems: "center",
+							flexDirection: "row",
+							justifyContent: "center",
+							shadowColor: "#000",
+							shadowOffset: { width: 0, height: 4 },
+							shadowOpacity: isDarkMode ? 0.4 : 0.2,
+							shadowRadius: 4,
+							elevation: 4,
+						}}
+						onPress={() =>
+							router.push(`/workout-player/${currentWorkout.id}` as any)
+						}
+					>
+						<Play size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
+						<Text
+							style={{
+								color: "#FFFFFF",
+								fontSize: 16,
+								fontWeight: "700",
+							}}
 						>
-							<Text className="text-white font-semibold text-lg">
-								Start Workout
-							</Text>
-						</TouchableOpacity>
-					</ScrollView>
-				) : workoutCompleted ? (
-					<View className="flex-1 p-4 items-center justify-center">
-						<View className="bg-green-100 rounded-full w-20 h-20 items-center justify-center mb-4">
-							<Flame size={32} color="#10B981" />
-						</View>
-						<Text className="text-2xl font-bold text-gray-800 mb-2">
-							Workout Complete!
+							Start Workout
 						</Text>
-						<Text className="text-gray-600 text-center mb-6">
-							Great job! You've completed your workout.
-						</Text>
-					</View>
-				) : (
-					<View className="flex-1 p-4 justify-between">
-						<View className="items-center">
-							<Text className="text-gray-500 mb-2">
-								Exercise {currentExerciseIndex + 1} of{" "}
-								{currentWorkout.exercises.length}
-							</Text>
-							<Text className="text-2xl font-bold text-gray-800 mb-6">
-								{currentWorkout.exercises[currentExerciseIndex].name}
-							</Text>
+					</TouchableOpacity>
+				</View>
+			</ScrollView>
 
-							<WorkoutTimer
-								duration={
-									currentWorkout.exercises[currentExerciseIndex].duration
-								}
-								onComplete={handleNextExercise}
-								isActive={isStarted}
-								onToggle={handleStartWorkout}
-							/>
+			{/* Action bar at bottom */}
+			<View
+				style={{
+					flexDirection: "row",
+					borderTopWidth: 1,
+					borderTopColor: isDarkMode
+						? "rgba(255,255,255,0.1)"
+						: "rgba(0,0,0,0.05)",
+					padding: 16,
+					backgroundColor: colors.card,
+				}}
+			>
+				<TouchableOpacity
+					style={{
+						flex: 1,
+						alignItems: "center",
+						flexDirection: "row",
+						justifyContent: "center",
+					}}
+				>
+					<Download
+						size={20}
+						color={isDarkMode ? "#A78BFA" : "#6366F1"}
+						style={{ marginRight: 6 }}
+					/>
+					<Text
+						style={{
+							color: isDarkMode ? "#A78BFA" : "#6366F1",
+							fontWeight: "600",
+						}}
+					>
+						Save Offline
+					</Text>
+				</TouchableOpacity>
 
-							<Text className="text-gray-500 mt-6">
-								Next:{" "}
-								{currentExerciseIndex < currentWorkout.exercises.length - 1
-									? currentWorkout.exercises[currentExerciseIndex + 1].name
-									: "Workout Complete"}
-							</Text>
-						</View>
+				<View
+					style={{
+						width: 1,
+						height: "100%",
+						backgroundColor: isDarkMode
+							? "rgba(255,255,255,0.1)"
+							: "rgba(0,0,0,0.05)",
+					}}
+				/>
 
-						<View className="flex-row justify-between mb-10">
-							<TouchableOpacity
-								onPress={handleStartWorkout}
-								className="bg-gray-200 rounded-full w-16 h-16 items-center justify-center"
-							>
-								{isStarted ? (
-									<Pause size={32} color="#4F46E5" />
-								) : (
-									<Play size={32} color="#4F46E5" />
-								)}
-							</TouchableOpacity>
-
-							<TouchableOpacity
-								onPress={handleNextExercise}
-								className="bg-indigo-600 rounded-full w-16 h-16 items-center justify-center"
-							>
-								<ArrowLeft
-									size={32}
-									color="#FFFFFF"
-									style={{ transform: [{ rotate: "180deg" }] }}
-								/>
-							</TouchableOpacity>
-						</View>
-					</View>
-				)}
+				<TouchableOpacity
+					style={{
+						flex: 1,
+						alignItems: "center",
+						flexDirection: "row",
+						justifyContent: "center",
+					}}
+				>
+					<Share2
+						size={20}
+						color={isDarkMode ? "#A78BFA" : "#6366F1"}
+						style={{ marginRight: 6 }}
+					/>
+					<Text
+						style={{
+							color: isDarkMode ? "#A78BFA" : "#6366F1",
+							fontWeight: "600",
+						}}
+					>
+						Share
+					</Text>
+				</TouchableOpacity>
 			</View>
 		</SafeAreaView>
 	);

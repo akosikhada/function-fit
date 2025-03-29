@@ -57,7 +57,7 @@ export default function WelcomeScreen() {
 	useEffect(() => {
 		// Animation configuration for smoother motion
 		const timing = {
-			duration: 1500,
+			duration: 1200, // Reduced from 1500
 			easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Custom bezier curve for smooth motion
 		};
 
@@ -69,44 +69,44 @@ export default function WelcomeScreen() {
 		};
 
 		// Step 1: First boxes slide in from opposite directions with rolling effect
-		boxTranslateX.value = withDelay(300, withSpring(0, springConfig));
-		boxOpacity.value = withDelay(300, withTiming(1, { duration: 1000 }));
-		boxRotate.value = withDelay(300, withTiming(0, timing));
+		boxTranslateX.value = withDelay(200, withSpring(0, springConfig));
+		boxOpacity.value = withDelay(200, withTiming(1, { duration: 800 }));
+		boxRotate.value = withDelay(200, withTiming(0, timing));
 
-		box1TranslateX.value = withDelay(300, withSpring(0, springConfig));
-		box1Opacity.value = withDelay(300, withTiming(1, { duration: 1000 }));
-		box1Rotate.value = withDelay(300, withTiming(0, timing));
+		box1TranslateX.value = withDelay(200, withSpring(0, springConfig));
+		box1Opacity.value = withDelay(200, withTiming(1, { duration: 800 }));
+		box1Rotate.value = withDelay(200, withTiming(0, timing));
 
-		// Step 2: App name appears after boxes are in place
+		// Step 2: App name appears after boxes are in place - SPEED UP THIS PART
 		appNameOpacity.value = withDelay(
-			1800,
+			1100, // Reduced from 1800
 			withTiming(1, {
-				duration: 800,
+				duration: 600, // Reduced from 800
 				easing: Easing.bezier(0.25, 0.1, 0.25, 1),
 			})
 		);
 
 		// Step 3: Tagline appears after app name
 		taglineOpacity.value = withDelay(
-			2600,
+			1500, // Reduced from 2600
 			withTiming(1, {
-				duration: 800,
+				duration: 600, // Reduced from 800
 				easing: Easing.bezier(0.25, 0.1, 0.25, 1),
 			})
 		);
 
 		// Step 4: Frame animates in with a unique effect
 		frameOpacity.value = withDelay(
-			3400,
+			1900, // Reduced from 3400
 			withTiming(1, {
-				duration: 1200,
+				duration: 1000, // Reduced from 1200
 				easing: Easing.bezier(0.25, 0.1, 0.25, 1),
 			})
 		);
 
 		// Scale up with a spring effect
 		frameScale.value = withDelay(
-			3400,
+			1900, // Reduced from 3400
 			withSpring(1, {
 				damping: 12,
 				stiffness: 70,
@@ -117,9 +117,9 @@ export default function WelcomeScreen() {
 
 		// Rotate slightly as it appears
 		frameRotate.value = withDelay(
-			3400,
+			1900, // Reduced from 3400
 			withTiming(0, {
-				duration: 1500,
+				duration: 1200, // Reduced from 1500
 				easing: Easing.elastic(1.5),
 			})
 		);
@@ -173,13 +173,13 @@ export default function WelcomeScreen() {
 	});
 
 	const handleGetStarted = () => {
-		// Use replace for faster navigation
-		router.replace("/signup");
+		// Use push for proper navigation history
+		router.push("/signup");
 	};
 
 	const handleSignIn = () => {
-		// Use replace for faster navigation
-		router.replace("/signin");
+		// Use push for proper navigation history
+		router.push("/signin");
 	};
 
 	return (
@@ -240,7 +240,7 @@ export default function WelcomeScreen() {
 				{/* Buttons */}
 				<Animated.View
 					className="w-full mt-auto"
-					entering={FadeInUp.duration(800).delay(4400)}
+					entering={FadeInUp.duration(800).delay(2800)}
 				>
 					<TouchableOpacity
 						className="bg-indigo-500 py-4 rounded-full items-center"
@@ -261,12 +261,6 @@ export default function WelcomeScreen() {
 						</TouchableOpacity>
 					</View>
 				</Animated.View>
-
-				{/* Bottom line indicator */}
-				<Animated.View
-					className="w-10 h-1 bg-gray-800 rounded-full mt-6"
-					entering={FadeIn.duration(600).delay(5000)}
-				/>
 			</View>
 		</SafeAreaView>
 	);
