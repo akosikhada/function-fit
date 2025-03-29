@@ -474,11 +474,21 @@ export const updateUserProfile = async (
 
 		// Only try to update email if it's provided and the auth user data exists
 		if (updateData.email) {
-			const { error: emailError } = await supabase.auth.updateUser({
-				email: updateData.email,
-			});
+			try {
+				const { error: emailError } = await supabase.auth.updateUser({
+					email: updateData.email,
+				});
 
-			if (emailError) throw emailError;
+				if (emailError) {
+					// If email update fails, log the error but don't stop the flow
+					console.error("Error updating email:", emailError);
+					// Throw the error to be handled by the caller
+					throw emailError;
+				}
+			} catch (emailUpdateError) {
+				console.error("Email update failed:", emailUpdateError);
+				throw emailUpdateError;
+			}
 		}
 
 		return { data, success: true };
