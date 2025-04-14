@@ -10,6 +10,8 @@ import {
 	TextInput,
 	useColorScheme,
 	Platform,
+	Modal,
+	Alert,
 } from "react-native";
 import { Stack, router } from "expo-router";
 import {
@@ -20,10 +22,17 @@ import {
 	Filter,
 	X,
 	Star,
+	MoreVertical,
+	Plus,
+	Calendar,
+	Share2,
+	Bookmark,
 } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import BottomNavigation from "../components/BottomNavigation";
 import ThemeModule from "../utils/theme";
+import { scheduleWorkout } from "../utils/fitness";
+import { getUser } from "../utils/supabase";
 const { useTheme } = ThemeModule;
 
 // Mock workout data - would come from Supabase in a real implementation
@@ -103,6 +112,119 @@ const workouts = [
 		imageUrl:
 			"https://images.unsplash.com/photo-1575052814086-f385e2e2ad1b?w=800&q=80",
 		trainer: "Maya Patel",
+		description: "A calming yoga sequence designed to increase flexibility, reduce stress, and improve mind-body connection. Perfect for beginners and those looking for a restorative practice.",
+		exercises: [
+			{
+				id: "y1",
+				name: "Mountain Pose (Tadasana)",
+				duration: "60 sec",
+				sets: 1,
+				reps: "Hold for 60 seconds",
+				rest: "10 sec",
+				muscle: "Full Body",
+				description: "Stand tall, grounding through feet, arms at sides, palms forward, gaze forward. Focus on alignment and steady breathing."
+			},
+			{
+				id: "y2",
+				name: "Standing Forward Fold",
+				duration: "60 sec",
+				sets: 1,
+				reps: "Hold for 60 seconds",
+				rest: "10 sec",
+				muscle: "Hamstrings",
+				description: "Fold forward from hips, lengthening spine, bringing hands beside feet. Keep slight bend in knees if needed."
+			},
+			{
+				id: "y3",
+				name: "Cat-Cow Stretch",
+				duration: "90 sec",
+				sets: 1,
+				reps: "15 breaths",
+				rest: "10 sec",
+				muscle: "Spine",
+				description: "Alternate between arching (cow) and rounding (cat) spine on hands and knees, moving with breath."
+			},
+			{
+				id: "y4",
+				name: "Downward-Facing Dog",
+				duration: "60 sec",
+				sets: 1,
+				reps: "Hold for 60 seconds",
+				rest: "10 sec",
+				muscle: "Full Body",
+				description: "Form inverted V with body, hands shoulder-width apart, feet hip-width apart, pushing heels toward floor."
+			},
+			{
+				id: "y5",
+				name: "Warrior I",
+				duration: "60 sec",
+				sets: 1,
+				reps: "30 sec each side",
+				rest: "10 sec",
+				muscle: "Legs",
+				description: "Lunge forward with one leg, back foot at angle, arms overhead, hips facing forward, chest proud."
+			},
+			{
+				id: "y6",
+				name: "Warrior II",
+				duration: "60 sec",
+				sets: 1,
+				reps: "30 sec each side",
+				rest: "10 sec",
+				muscle: "Hips",
+				description: "Stride with feet wide apart, front knee bent, arms extended parallel to floor, gaze over front hand."
+			},
+			{
+				id: "y7",
+				name: "Triangle Pose",
+				duration: "60 sec",
+				sets: 1,
+				reps: "30 sec each side",
+				rest: "10 sec",
+				muscle: "Side Body",
+				description: "From wide stance, extend sideways, reaching one hand to shin/ankle/block, other arm up, creating triangle shape."
+			},
+			{
+				id: "y8",
+				name: "Tree Pose",
+				duration: "60 sec",
+				sets: 1,
+				reps: "30 sec each side",
+				rest: "10 sec",
+				muscle: "Balance",
+				description: "Balance on one leg, other foot on inner thigh (avoid knee), hands in prayer or extended overhead."
+			},
+			{
+				id: "y9",
+				name: "Bridge Pose",
+				duration: "60 sec",
+				sets: 1,
+				reps: "3 sets of 15-20 sec holds",
+				rest: "10 sec",
+				muscle: "Lower Back",
+				description: "Lie on back, knees bent, lift hips, creating bridge with body, shoulders grounded, engage glutes."
+			},
+			{
+				id: "y10",
+				name: "Child's Pose",
+				duration: "60 sec",
+				sets: 1,
+				reps: "Hold for 60 seconds",
+				rest: "10 sec",
+				muscle: "Relaxation",
+				description: "Kneel and fold forward, arms extended or beside body, forehead to mat, gentle hip opening."
+			},
+			{
+				id: "y11",
+				name: "Corpse Pose (Savasana)",
+				duration: "180 sec",
+				sets: 1,
+				reps: "Hold for 3 minutes",
+				rest: "0 sec",
+				muscle: "Relaxation",
+				description: "Lie flat on back, arms and legs splayed, palms up, completely relax body and mind for deep rest."
+			}
+		]
 	},
 	{
 		id: "6",
@@ -116,6 +238,129 @@ const workouts = [
 		imageUrl:
 			"https://images.unsplash.com/photo-1518611012118-696072aa579a?w=800&q=80",
 		trainer: "Olivia Wilson",
+		description: "Build core strength, improve posture and enhance flexibility with this focused Pilates workout suitable for all levels.",
+		exercises: [
+			{
+				id: "p1",
+				name: "Hundred",
+				duration: "60 sec",
+				sets: 1,
+				reps: "100 pumps",
+				rest: "15 sec",
+				muscle: "Core",
+				description: "Lie on back, head and shoulders lifted, legs raised and bent at 90 degrees, pump arms up and down while breathing rhythmically."
+			},
+			{
+				id: "p2",
+				name: "Roll Up",
+				duration: "45 sec",
+				sets: 1,
+				reps: "8 reps",
+				rest: "15 sec",
+				muscle: "Abdominals",
+				description: "Lie flat with arms extended overhead, slowly roll up vertebra by vertebra, reaching for toes, then roll back down with control."
+			},
+			{
+				id: "p3",
+				name: "Single Leg Circles",
+				duration: "60 sec",
+				sets: 1,
+				reps: "10 circles each leg",
+				rest: "15 sec",
+				muscle: "Hips",
+				description: "Lie on back, one leg extended to ceiling, circle leg in precise, controlled movements, 5 in each direction."
+			},
+			{
+				id: "p4",
+				name: "Rolling Like a Ball",
+				duration: "45 sec",
+				sets: 1,
+				reps: "8-10 rolls",
+				rest: "15 sec",
+				muscle: "Core",
+				description: "Sit in balanced C-curve, feet off floor, hands holding behind knees. Roll back to shoulders and return without momentum."
+			},
+			{
+				id: "p5",
+				name: "Single Leg Stretch",
+				duration: "60 sec",
+				sets: 1,
+				reps: "10 reps each leg",
+				rest: "15 sec",
+				muscle: "Core",
+				description: "Lying with head and shoulders lifted, alternate extending one leg while hugging the other to chest."
+			},
+			{
+				id: "p6",
+				name: "Double Leg Stretch",
+				duration: "60 sec",
+				sets: 1,
+				reps: "10 reps",
+				rest: "15 sec",
+				muscle: "Full Core",
+				description: "Curl up with knees to chest, arms hugging legs, then extend arms and legs outward in synchronized movement."
+			},
+			{
+				id: "p7",
+				name: "Spine Stretch Forward",
+				duration: "45 sec",
+				sets: 1,
+				reps: "5 reps",
+				rest: "15 sec",
+				muscle: "Back",
+				description: "Sit tall with legs extended, reach forward articulating through spine, creating C-curve, return to start with control."
+			},
+			{
+				id: "p8",
+				name: "Saw",
+				duration: "45 sec",
+				sets: 1,
+				reps: "5 reps each side",
+				rest: "15 sec",
+				muscle: "Obliques",
+				description: "Sit with legs wide apart, twist torso and reach opposite hand to outside of foot, pulsing three times."
+			},
+			{
+				id: "p9",
+				name: "Swan Dive",
+				duration: "45 sec",
+				sets: 1,
+				reps: "5 reps",
+				rest: "15 sec",
+				muscle: "Back",
+				description: "Lie face down, press upper body up into backbend, then rock forward and back on torso with control."
+			},
+			{
+				id: "p10",
+				name: "Side Kick Series",
+				duration: "90 sec",
+				sets: 1,
+				reps: "10 reps each movement",
+				rest: "15 sec",
+				muscle: "Hips/Legs",
+				description: "Lying on side with body in straight line, perform series of precise leg movements to target outer thighs and hips."
+			},
+			{
+				id: "p11",
+				name: "Teaser",
+				duration: "60 sec",
+				sets: 1,
+				reps: "5 reps",
+				rest: "15 sec",
+				muscle: "Full Core",
+				description: "Advanced move where body creates V-shape, balancing on sits bones with legs and torso lifted, arms parallel to legs."
+			},
+			{
+				id: "p12",
+				name: "Pilates Push-Up",
+				duration: "45 sec",
+				sets: 1,
+				reps: "5 reps",
+				rest: "15 sec",
+				muscle: "Arms/Chest",
+				description: "Standing roll down to plank, perform push-up with elbows close to body, then return to standing with controlled roll-up."
+			}
+		]
 	},
 ];
 
@@ -173,6 +418,11 @@ export default function WorkoutLibrary() {
 	const [selectedCategory, setSelectedCategory] = useState("all");
 	const [searchQuery, setSearchQuery] = useState("");
 	const [showSearch, setShowSearch] = useState(false);
+	const [menuVisible, setMenuVisible] = useState(false);
+	const [selectedWorkout, setSelectedWorkout] = useState<any>(null);
+	const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
+	const [successModalVisible, setSuccessModalVisible] = useState(false);
+	const [successWorkout, setSuccessWorkout] = useState<any>(null);
 
 	const featuredWorkouts = workouts.filter((workout) => workout.isFeatured);
 
@@ -187,6 +437,54 @@ export default function WorkoutLibrary() {
 
 		return matchesCategory && matchesSearch;
 	});
+
+	const handleOpenMenu = (workout: any, e: any) => {
+		e.stopPropagation();
+		
+		setSelectedWorkout(workout);
+		
+		setMenuVisible(true);
+	};
+	
+	const handleAddToToday = async () => {
+		try {
+			// Get the current user
+			const user = await getUser();
+			if (!user) {
+				setMenuVisible(false);
+				Alert.alert("Error", "You need to be logged in to add workouts");
+				return;
+			}
+			
+			// Get today's date in YYYY-MM-DD format
+			const today = new Date().toISOString().split('T')[0];
+			
+			// Schedule the workout for today
+			const result = await scheduleWorkout(
+				user.id,
+				selectedWorkout.id,
+				today
+			);
+			
+			// Close the menu
+			setMenuVisible(false);
+			
+			if (result.success) {
+				// Show success message
+				setSuccessWorkout(selectedWorkout);
+				setSuccessModalVisible(true);
+				
+				// Auto-hide after 3 seconds
+				setTimeout(() => {
+					setSuccessModalVisible(false);
+				}, 3000);
+			}
+		} catch (error) {
+			console.error("Error adding workout to today:", error);
+			setMenuVisible(false);
+			Alert.alert("Error", "Failed to add workout. Please try again.");
+		}
+	};
 
 	const renderDifficultyBadge = (difficulty: string) => {
 		let bgColor = "";
@@ -398,6 +696,7 @@ export default function WorkoutLibrary() {
 											shadowOpacity: 0.1,
 											shadowRadius: 4,
 											elevation: 3,
+											position: "relative",
 										}}
 										onPress={() => router.push(`/workout/${workout.id}`)}
 									>
@@ -406,6 +705,29 @@ export default function WorkoutLibrary() {
 											style={{ width: "100%", height: "100%" }}
 											resizeMode="cover"
 										/>
+										
+										{/* Three dots menu button - absolute positioned on top-right */}
+										<TouchableOpacity
+											style={{
+												position: "absolute",
+												top: 10,
+												right: 10,
+												backgroundColor: "rgba(0,0,0,0.5)",
+												borderRadius: 15,
+												width: 30,
+												height: 30,
+												alignItems: "center",
+												justifyContent: "center",
+												zIndex: 10,
+											}}
+											onPress={(e) => handleOpenMenu(workout, e)}
+										>
+											<MoreVertical 
+												size={16} 
+												color="#FFFFFF"
+											/>
+										</TouchableOpacity>
+										
 										<LinearGradient
 											colors={["transparent", "rgba(0,0,0,0.8)"]}
 											style={{
@@ -593,7 +915,7 @@ export default function WorkoutLibrary() {
 											}}
 										>
 											{/* Workout Image */}
-											<View style={{ width: workoutCardImageWidth }}>
+											<View style={{ width: workoutCardImageWidth, position: "relative" }}>
 												<Image
 													source={{ uri: workout.imageUrl }}
 													style={{ width: "100%", height: "100%" }}
@@ -609,32 +931,45 @@ export default function WorkoutLibrary() {
 												}}
 											>
 												<View>
-													<View className="flex-row items-center mb-1">
-														{renderDifficultyBadge(workout.difficulty)}
-														<View
-															className="rounded-full ml-2"
-															style={{
-																backgroundColor: isDarkMode
-																	? "rgba(139, 92, 246, 0.2)"
-																	: "rgba(139, 92, 246, 0.1)",
-																paddingHorizontal: 8,
-																paddingVertical: 4,
-															}}
-														>
-															<Text
-																className="font-medium"
+													<View className="flex-row items-center justify-between mb-1">
+														<View className="flex-row items-center">
+															{renderDifficultyBadge(workout.difficulty)}
+															<View
+																className="rounded-full ml-2"
 																style={{
-																	color: isDarkMode ? "#C4B5FD" : "#7C3AED",
-																	fontSize: isSmallDevice ? 10 : 12,
+																	backgroundColor: isDarkMode
+																		? "rgba(139, 92, 246, 0.2)"
+																		: "rgba(139, 92, 246, 0.1)",
+																	paddingHorizontal: 8,
+																	paddingVertical: 4,
 																}}
 															>
-																{
-																	workoutCategories.find(
-																		(cat) => cat.id === workout.category
-																	)?.name
-																}
-															</Text>
+																<Text
+																	className="font-medium"
+																	style={{
+																		color: isDarkMode ? "#C4B5FD" : "#7C3AED",
+																		fontSize: isSmallDevice ? 10 : 12,
+																	}}
+																>
+																	{
+																		workoutCategories.find(
+																			(cat) => cat.id === workout.category
+																		)?.name
+																	}
+																</Text>
+															</View>
 														</View>
+														
+														{/* Three dots menu button */}
+														<TouchableOpacity
+															onPress={(e) => handleOpenMenu(workout, e)}
+															hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
+														>
+															<MoreVertical
+																size={isSmallDevice ? 16 : 18}
+																color={colors.secondaryText}
+															/>
+														</TouchableOpacity>
 													</View>
 
 													<Text
@@ -723,6 +1058,174 @@ export default function WorkoutLibrary() {
 					<BottomNavigation activeTab="plan" />
 				</View>
 			</View>
+
+			{/* Popup Menu Modal */}
+			<Modal
+				visible={menuVisible}
+				transparent={true}
+				animationType="fade"
+				onRequestClose={() => setMenuVisible(false)}
+			>
+				<TouchableOpacity
+					style={{
+						flex: 1,
+						backgroundColor: 'rgba(0,0,0,0.5)',
+						justifyContent: 'center',
+						alignItems: 'center',
+					}}
+					activeOpacity={1}
+					onPress={() => setMenuVisible(false)}
+				>
+					<View
+						style={{
+							backgroundColor: colors.card,
+							borderRadius: 12,
+							width: '80%',
+							maxWidth: 320,
+							overflow: 'hidden',
+							shadowColor: "#000",
+							shadowOffset: { width: 0, height: 2 },
+							shadowOpacity: 0.25,
+							shadowRadius: 3.84,
+							elevation: 5,
+						}}
+					>
+						{selectedWorkout && (
+							<>
+								<View style={{ 
+									padding: 16, 
+									borderBottomWidth: 1, 
+									borderBottomColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'
+								}}>
+									<Text style={{ 
+										color: colors.text, 
+										fontSize: 18, 
+										fontWeight: '600',
+										textAlign: 'center'
+									}}>
+										{selectedWorkout.title}
+									</Text>
+								</View>
+								
+								<TouchableOpacity 
+									style={{ 
+										flexDirection: 'row', 
+										alignItems: 'center', 
+										padding: 16,
+										borderBottomWidth: 1, 
+										borderBottomColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'
+									}}
+									onPress={handleAddToToday}
+								>
+									<Calendar size={20} color={isDarkMode ? "#A78BFA" : "#6366F1"} style={{ marginRight: 12 }} />
+									<Text style={{ color: colors.text, fontSize: 16 }}>Add to Today's Workout</Text>
+								</TouchableOpacity>
+								
+								<TouchableOpacity 
+									style={{ 
+										flexDirection: 'row', 
+										alignItems: 'center', 
+										padding: 16,
+										borderBottomWidth: 1, 
+										borderBottomColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'
+									}}
+									onPress={() => {
+										setMenuVisible(false);
+										Alert.alert("Bookmark", "Workout saved to your bookmarks");
+									}}
+								>
+									<Bookmark size={20} color={isDarkMode ? "#A78BFA" : "#6366F1"} style={{ marginRight: 12 }} />
+									<Text style={{ color: colors.text, fontSize: 16 }}>Save to Bookmarks</Text>
+								</TouchableOpacity>
+								
+								<TouchableOpacity 
+									style={{ 
+										flexDirection: 'row', 
+										alignItems: 'center', 
+										padding: 16 
+									}}
+									onPress={() => {
+										setMenuVisible(false);
+										Alert.alert("Share", "Sharing workout");
+									}}
+								>
+									<Share2 size={20} color={isDarkMode ? "#A78BFA" : "#6366F1"} style={{ marginRight: 12 }} />
+									<Text style={{ color: colors.text, fontSize: 16 }}>Share Workout</Text>
+								</TouchableOpacity>
+							</>
+						)}
+					</View>
+				</TouchableOpacity>
+			</Modal>
+
+			{/* Success Modal */}
+			<Modal
+				visible={successModalVisible}
+				transparent={true}
+				animationType="fade"
+				onRequestClose={() => setSuccessModalVisible(false)}
+			>
+				<TouchableOpacity
+					style={{
+						flex: 1,
+						backgroundColor: 'rgba(0,0,0,0.5)',
+						justifyContent: 'center',
+						alignItems: 'center',
+					}}
+					activeOpacity={1}
+					onPress={() => setSuccessModalVisible(false)}
+				>
+					<View
+						style={{
+							backgroundColor: colors.card,
+							borderRadius: 12,
+							width: '80%',
+							maxWidth: 320,
+							overflow: 'hidden',
+							shadowColor: "#000",
+							shadowOffset: { width: 0, height: 2 },
+							shadowOpacity: 0.25,
+							shadowRadius: 3.84,
+							elevation: 5,
+						}}
+					>
+						{successWorkout && (
+							<>
+								<View style={{ 
+									padding: 16, 
+									borderBottomWidth: 1, 
+									borderBottomColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'
+								}}>
+									<Text style={{ 
+										color: colors.text, 
+										fontSize: 18, 
+										fontWeight: '600',
+										textAlign: 'center'
+									}}>
+										{successWorkout.title} has been added to today's workouts!
+									</Text>
+								</View>
+								
+								<TouchableOpacity 
+									style={{ 
+										flexDirection: 'row', 
+										alignItems: 'center', 
+										padding: 16,
+										borderBottomWidth: 1, 
+										borderBottomColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'
+									}}
+									onPress={() => {
+										setSuccessModalVisible(false);
+										router.push("/plan");
+									}}
+								>
+									<Text style={{ color: colors.text, fontSize: 16 }}>View Workouts</Text>
+								</TouchableOpacity>
+							</>
+						)}
+					</View>
+				</TouchableOpacity>
+			</Modal>
 		</SafeAreaView>
 	);
 }

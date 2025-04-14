@@ -21,7 +21,12 @@ const WorkoutTimer = ({
   isActive = false,
   onToggle,
 }: WorkoutTimerProps) => {
-  const [timeLeft, setTimeLeft] = useState(duration);
+  // Ensure duration is a valid number
+  const validDuration = typeof duration === 'number' && !isNaN(duration) && duration > 0 
+    ? Math.floor(duration) // Ensure it's an integer
+    : 45; // Default to 45 seconds if invalid
+
+  const [timeLeft, setTimeLeft] = useState(validDuration);
   const [isPaused, setIsPaused] = useState(!isActive);
   const animatedValue = useRef(new Animated.Value(1)).current;
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -29,15 +34,20 @@ const WorkoutTimer = ({
   // Animation for the progress circle
   const circumference = 2 * Math.PI * 50; // radius is 50
   const strokeDashoffset = animatedValue.interpolate({
-    inputRange: [0, duration],
+    inputRange: [0, validDuration],
     outputRange: [circumference, 0],
     extrapolate: "clamp",
   });
 
   useEffect(() => {
-    // Start or reset animation when duration changes
-    animatedValue.setValue(timeLeft);
-    setTimeLeft(duration);
+    // Reset when duration changes
+    const newDur = typeof duration === 'number' && !isNaN(duration) && duration > 0 
+      ? Math.floor(duration) 
+      : 45;
+    
+    // Update animation and time left
+    animatedValue.setValue(newDur);
+    setTimeLeft(newDur);
   }, [duration]);
 
   useEffect(() => {
@@ -101,35 +111,58 @@ const WorkoutTimer = ({
 
   return (
     <View className="items-center justify-center">
+      {/* Timer Circle */}
       <View className="relative w-64 h-64 items-center justify-center">
         {/* Background Circle */}
         <View className="absolute w-64 h-64 rounded-full bg-indigo-100" />
+        
+        {/* Animated Progress Circle */}
+        <Animated.View
+          style={{
+            position: 'absolute',
+            width: 200,
+            height: 200,
+            borderRadius: 100,
+            borderWidth: 8,
+            borderColor: '#4F46E5',
+            opacity: 0.8,
+            transform: [
+              {
+                rotate: animatedValue.interpolate({
+                  inputRange: [0, validDuration],
+                  outputRange: ['0deg', '360deg'],
+                  extrapolate: 'clamp',
+                })
+              }
+            ]
+          }}
+        />
 
         {/* Timer Text */}
         <Text className="text-4xl font-bold text-indigo-600">
           {formatTime(timeLeft)}
         </Text>
+      </View>
 
-        {/* Controls */}
-        <View className="absolute bottom-0 w-full flex-row justify-center space-x-8 mb-4">
-          <TouchableOpacity
-            onPress={handleToggle}
-            className="bg-white rounded-full w-12 h-12 items-center justify-center shadow-md"
-          >
-            {isPaused ? (
-              <Play size={24} color="#4F46E5" />
-            ) : (
-              <Pause size={24} color="#4F46E5" />
-            )}
-          </TouchableOpacity>
+      {/* Controls - Now moved below the timer circle */}
+      <View className="flex-row justify-center space-x-12 mt-6">
+        <TouchableOpacity
+          onPress={handleToggle}
+          className="bg-white rounded-full w-14 h-14 items-center justify-center shadow-md ml-20"
+        >
+          {isPaused ? (
+            <Play size={28} color="#4F46E5" />
+          ) : (
+            <Pause size={28} color="#4F46E5" />
+          )}
+        </TouchableOpacity>
 
-          <TouchableOpacity
-            onPress={handleSkip}
-            className="bg-white rounded-full w-12 h-12 items-center justify-center shadow-md"
-          >
-            <SkipForward size={24} color="#4F46E5" />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          onPress={handleSkip}
+          className="bg-white rounded-full w-14 h-14 items-center justify-center shadow-md ml-5"
+        >
+          <SkipForward size={28} color="#4F46E5" />
+        </TouchableOpacity>
       </View>
     </View>
   );

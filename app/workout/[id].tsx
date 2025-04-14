@@ -35,6 +35,7 @@ interface Exercise {
 	sets: number;
 	reps: string;
 	rest: string;
+	description?: string;
 }
 
 interface WorkoutData {
@@ -180,6 +181,239 @@ const fallbackWorkouts: Record<string, WorkoutData> = {
 			},
 		],
 	},
+	"5": {
+		id: "5",
+		title: "Gentle Yoga Flow",
+		description:
+			"A calming yoga sequence designed to increase flexibility, reduce stress, and improve mind-body connection. Perfect for beginners and those looking for a restorative practice.",
+		duration: "45 mins",
+		calories: "180 cal",
+		level: "Beginner",
+		imageUrl:
+			"https://images.unsplash.com/photo-1575052814086-f385e2e2ad1b?w=800&q=80",
+		exercises: [
+			{
+				id: "y1",
+				name: "Mountain Pose (Tadasana)",
+				duration: "60 sec",
+				sets: 1,
+				reps: "Hold for 60 seconds",
+				rest: "10 sec rest",
+				description: "Stand tall, grounding through feet, arms at sides, palms forward, gaze forward. Focus on alignment and steady breathing."
+			},
+			{
+				id: "y2",
+				name: "Standing Forward Fold",
+				duration: "60 sec",
+				sets: 1,
+				reps: "Hold for 60 seconds",
+				rest: "10 sec rest",
+				description: "Fold forward from hips, lengthening spine, bringing hands beside feet. Keep slight bend in knees if needed."
+			},
+			{
+				id: "y3",
+				name: "Cat-Cow Stretch",
+				duration: "90 sec",
+				sets: 1,
+				reps: "15 breaths",
+				rest: "10 sec rest",
+				description: "Alternate between arching (cow) and rounding (cat) spine on hands and knees, moving with breath."
+			},
+			{
+				id: "y4",
+				name: "Downward-Facing Dog",
+				duration: "60 sec",
+				sets: 1,
+				reps: "Hold for 60 seconds",
+				rest: "10 sec rest",
+				description: "Form inverted V with body, hands shoulder-width apart, feet hip-width apart, pushing heels toward floor."
+			},
+			{
+				id: "y5",
+				name: "Warrior I",
+				duration: "60 sec",
+				sets: 1,
+				reps: "30 sec each side",
+				rest: "10 sec rest",
+				description: "Lunge forward with one leg, back foot at angle, arms overhead, hips facing forward, chest proud."
+			},
+			{
+				id: "y6",
+				name: "Warrior II",
+				duration: "60 sec",
+				sets: 1,
+				reps: "30 sec each side",
+				rest: "10 sec rest",
+				description: "Stride with feet wide apart, front knee bent, arms extended parallel to floor, gaze over front hand."
+			},
+			{
+				id: "y7",
+				name: "Triangle Pose",
+				duration: "60 sec",
+				sets: 1,
+				reps: "30 sec each side",
+				rest: "10 sec rest",
+				description: "From wide stance, extend sideways, reaching one hand to shin/ankle/block, other arm up, creating triangle shape."
+			},
+			{
+				id: "y8",
+				name: "Tree Pose",
+				duration: "60 sec",
+				sets: 1,
+				reps: "30 sec each side",
+				rest: "10 sec rest",
+				description: "Balance on one leg, other foot on inner thigh (avoid knee), hands in prayer or extended overhead."
+			},
+			{
+				id: "y9",
+				name: "Bridge Pose",
+				duration: "60 sec",
+				sets: 1,
+				reps: "3 sets of 15-20 sec holds",
+				rest: "10 sec rest",
+				description: "Lie on back, knees bent, lift hips, creating bridge with body, shoulders grounded, engage glutes."
+			},
+			{
+				id: "y10",
+				name: "Child's Pose",
+				duration: "60 sec",
+				sets: 1,
+				reps: "Hold for 60 seconds",
+				rest: "10 sec rest",
+				description: "Kneel and fold forward, arms extended or beside body, forehead to mat, gentle hip opening."
+			},
+			{
+				id: "y11",
+				name: "Corpse Pose (Savasana)",
+				duration: "180 sec",
+				sets: 1,
+				reps: "Hold for 3 minutes",
+				rest: "0 sec rest",
+				description: "Lie flat on back, arms and legs splayed, palms up, completely relax body and mind for deep rest."
+			},
+		],
+	},
+	"6": {
+		id: "6",
+		title: "Pilates Core Essentials",
+		description:
+			"Build core strength, improve posture and enhance flexibility with this focused Pilates workout suitable for all levels.",
+		duration: "40 mins",
+		calories: "200 cal",
+		level: "Intermediate",
+		imageUrl:
+			"https://images.unsplash.com/photo-1518611012118-696072aa579a?w=800&q=80",
+		exercises: [
+			{
+				id: "p1",
+				name: "Hundred",
+				duration: "60 sec",
+				sets: 1,
+				reps: "100 pumps",
+				rest: "15 sec rest",
+				description: "Lie on back, head and shoulders lifted, legs raised and bent at 90 degrees, pump arms up and down while breathing rhythmically."
+			},
+			{
+				id: "p2",
+				name: "Roll Up",
+				duration: "45 sec",
+				sets: 1,
+				reps: "8 reps",
+				rest: "15 sec rest",
+				description: "Lie flat with arms extended overhead, slowly roll up vertebra by vertebra, reaching for toes, then roll back down with control."
+			},
+			{
+				id: "p3",
+				name: "Single Leg Circles",
+				duration: "60 sec",
+				sets: 1,
+				reps: "10 circles each leg",
+				rest: "15 sec rest",
+				description: "Lie on back, one leg extended to ceiling, circle leg in precise, controlled movements, 5 in each direction."
+			},
+			{
+				id: "p4",
+				name: "Rolling Like a Ball",
+				duration: "45 sec",
+				sets: 1,
+				reps: "8-10 rolls",
+				rest: "15 sec rest",
+				description: "Sit in balanced C-curve, feet off floor, hands holding behind knees. Roll back to shoulders and return without momentum."
+			},
+			{
+				id: "p5",
+				name: "Single Leg Stretch",
+				duration: "60 sec",
+				sets: 1,
+				reps: "10 reps each leg",
+				rest: "15 sec rest",
+				description: "Lying with head and shoulders lifted, alternate extending one leg while hugging the other to chest."
+			},
+			{
+				id: "p6",
+				name: "Double Leg Stretch",
+				duration: "60 sec",
+				sets: 1,
+				reps: "10 reps",
+				rest: "15 sec rest",
+				description: "Curl up with knees to chest, arms hugging legs, then extend arms and legs outward in synchronized movement."
+			},
+			{
+				id: "p7",
+				name: "Spine Stretch Forward",
+				duration: "45 sec",
+				sets: 1,
+				reps: "5 reps",
+				rest: "15 sec rest",
+				description: "Sit tall with legs extended, reach forward articulating through spine, creating C-curve, return to start with control."
+			},
+			{
+				id: "p8",
+				name: "Saw",
+				duration: "45 sec",
+				sets: 1,
+				reps: "5 reps each side",
+				rest: "15 sec rest",
+				description: "Sit with legs wide apart, twist torso and reach opposite hand to outside of foot, pulsing three times."
+			},
+			{
+				id: "p9",
+				name: "Swan Dive",
+				duration: "45 sec",
+				sets: 1,
+				reps: "5 reps",
+				rest: "15 sec rest",
+				description: "Lie face down, press upper body up into backbend, then rock forward and back on torso with control."
+			},
+			{
+				id: "p10",
+				name: "Side Kick Series",
+				duration: "90 sec",
+				sets: 1,
+				reps: "10 reps each movement",
+				rest: "15 sec rest",
+				description: "Lying on side with body in straight line, perform series of precise leg movements to target outer thighs and hips."
+			},
+			{
+				id: "p11",
+				name: "Teaser",
+				duration: "60 sec",
+				sets: 1,
+				reps: "5 reps",
+				rest: "15 sec rest",
+				description: "Advanced move where body creates V-shape, balancing on sits bones with legs and torso lifted, arms parallel to legs."
+			},
+			{
+				id: "p12",
+				name: "Pilates Push-Up",
+				duration: "45 sec",
+				sets: 1,
+				reps: "5 reps",
+				rest: "15 sec rest",
+				description: "Standing roll down to plank, perform push-up with elbows close to body, then return to standing with controlled roll-up."
+			}
+		],
+	}
 };
 
 export default function WorkoutDetailScreen() {

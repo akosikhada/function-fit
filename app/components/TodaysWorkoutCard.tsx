@@ -123,7 +123,7 @@ const TodaysWorkoutCard = ({
 						style={{ backgroundColor: colors.accent }}
 					>
 						<Play size={16} color="#FFFFFF" />
-						<Text className="ml-2 text-white font-semibold">Start Workout</Text>
+						<Text className="ml-3 text-white font-semibold">Start Workout</Text>
 					</TouchableOpacity>
 				</View>
 			</View>
