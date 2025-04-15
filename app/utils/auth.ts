@@ -204,7 +204,7 @@ export const updateUserProfile = async (
 export const resetPassword = async (email: string) => {
 	try {
 		const { error } = await supabase.auth.resetPasswordForEmail(email, {
-			redirectTo: "https://yourapp.com/reset-password",
+			redirectTo: "http://localhost:3000/app/reset-password-confirmation"
 		});
 
 		if (error) throw error;

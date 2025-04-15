@@ -12,6 +12,7 @@ import {
 	Platform,
 	Animated,
 	Modal,
+	Alert,
 } from "react-native";
 import { Stack, router } from "expo-router";
 import {
@@ -26,10 +27,13 @@ import {
 	MoreVertical,
 	Flame,
 	ChevronLeft,
+	Trash2,
+	CheckCircle,
 } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import BottomNavigation from "../components/BottomNavigation";
 import ThemeModule from "../utils/theme";
+import { supabase } from "../utils/supabase";
 
 const { useTheme } = ThemeModule;
 
@@ -43,23 +47,27 @@ const formatDate = (date: Date) => {
 	);
 };
 
-// Mock data - would come from Supabase in a real implementation
-const daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+// Helper function to format a date for display in the calendar modal
+const formatDisplayDate = (date: Date) => {
+	const options: Intl.DateTimeFormatOptions = {
+		weekday: "long",
+		month: "long",
+		day: "numeric",
+	};
+	return new Intl.DateTimeFormat("en-US", options).format(date);
+};
+
+// Helper function to get the month name
+const getMonthName = (date: Date) => {
+	const options: Intl.DateTimeFormatOptions = { month: "long" };
+	return new Intl.DateTimeFormat("en-US", options).format(date);
+};
+
+// Get today's date and current day of week
 const today = new Date();
 const currentDay = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
 
-const weekDates = daysOfWeek.map((day, index) => {
-	const date = new Date(today);
-	date.setDate(today.getDate() - currentDay + index);
-	return {
-		day,
-		date: date.getDate(),
-		full: date,
-		isToday: date.getDate() === today.getDate(),
-	};
-});
-
-// Define Exercise type
+// Define the types needed for our workout data
 type Exercise = {
 	name: string;
 	sets: number;
@@ -70,8 +78,9 @@ type Exercise = {
 // Define Workout type
 type Workout = {
 	id: string;
+	planId: string;
 	title: string;
-	time: string;
+	time?: string;
 	duration: string;
 	intensity: string;
 	calories: string;
@@ -80,119 +89,34 @@ type Workout = {
 	exercises?: Exercise[];
 };
 
-const workoutSchedule = [
-	{
-		day: 0,
-		workouts: [
-			{
-				id: "1",
-				title: "Full Body HIIT",
-				time: "9:00 AM",
-				duration: "30 mins",
-				intensity: "High",
-				calories: "320",
-				completed: false,
-				imageUrl:
-					"https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=500&q=80",
-				exercises: [
-					{ name: "Push-ups", sets: 3, reps: "12 reps", muscle: "Chest" },
-					{ name: "Jump Squats", sets: 3, reps: "15 reps", muscle: "Legs" },
-					{ name: "Plank", sets: 3, reps: "30 sec", muscle: "Core" },
-					{ name: "Burpees", sets: 3, reps: "10 reps", muscle: "Full Body" },
-				],
-			},
-		],
-	},
-	{ day: 1, workouts: [] },
-	{
-		day: 2,
-		workouts: [
-			{
-				id: "2",
-				title: "Core Crusher",
-				time: "6:30 PM",
-				duration: "20 mins",
-				intensity: "Medium",
-				calories: "220",
-				completed: true,
-				imageUrl:
-					"https://images.unsplash.com/photo-1571019614242-c5c5dee9f50b?w=500&q=80",
-				exercises: [
-					{ name: "Crunches", sets: 3, reps: "15 reps", muscle: "Abs" },
-					{
-						name: "Russian Twists",
-						sets: 3,
-						reps: "20 reps",
-						muscle: "Obliques",
-					},
-					{ name: "Leg Raises", sets: 3, reps: "12 reps", muscle: "Lower Abs" },
-					{
-						name: "Mountain Climbers",
-						sets: 3,
-						reps: "30 sec",
-						muscle: "Core",
-					},
-				],
-			},
-		],
-	},
-	{ day: 3, workouts: [] },
-	{
-		day: 4,
-		workouts: [
-			{
-				id: "3",
-				title: "Upper Body Blast",
-				time: "7:00 AM",
-				duration: "25 mins",
-				intensity: "Medium",
-				calories: "280",
-				completed: false,
-				imageUrl:
-					"https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=500&q=80",
-				exercises: [
-					{
-						name: "Shoulder Press",
-						sets: 3,
-						reps: "12 reps",
-						muscle: "Shoulders",
-					},
-					{ name: "Tricep Dips", sets: 3, reps: "15 reps", muscle: "Triceps" },
-					{ name: "Pull-ups", sets: 3, reps: "8 reps", muscle: "Back" },
-					{ name: "Push-ups", sets: 3, reps: "12 reps", muscle: "Chest" },
-				],
-			},
-		],
-	},
-	{ day: 5, workouts: [] },
-	{
-		day: 6,
-		workouts: [
-			{
-				id: "4",
-				title: "Cardio Kickboxing",
-				time: "10:00 AM",
-				duration: "35 mins",
-				intensity: "High",
-				calories: "400",
-				completed: false,
-				imageUrl:
-					"https://images.unsplash.com/photo-1549576490-b0b4831ef60a?w=500&q=80",
-				exercises: [
-					{ name: "Jabs", sets: 3, reps: "20 reps", muscle: "Arms" },
-					{ name: "High Knees", sets: 3, reps: "30 sec", muscle: "Cardio" },
-					{
-						name: "Roundhouse Kicks",
-						sets: 3,
-						reps: "10 each leg",
-						muscle: "Legs",
-					},
-					{ name: "Burpees", sets: 3, reps: "12 reps", muscle: "Full Body" },
-				],
-			},
-		],
-	},
-];
+// Define the type for our schedule
+type WorkoutScheduleDay = {
+	day: number;
+	workouts: Workout[];
+};
+
+// Define the WorkoutPlan type as returned from the database
+type WorkoutPlan = {
+	id: string;
+	scheduled_date: string;
+	scheduled_time?: string;
+	workouts: {
+		id: string;
+		title: string;
+		duration: number;
+		calories: number;
+		difficulty: string;
+		image_url?: string;
+	};
+};
+
+// Define type for weekly progress data
+type WeeklyProgressItem = {
+	day: string;
+	value: number;
+	target: number;
+	date: string;
+};
 
 // Sample completed workouts for weekly summary
 const completedWorkouts = [
@@ -205,49 +129,56 @@ const completedWorkouts = [
 	{ day: "Sun", value: 0, target: 1 },
 ];
 
-// Add function to format date in a readable format like "Mon, Aug 22"
-const formatDisplayDate = (date: Date) => {
-	const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-	const months = [
-		"Jan",
-		"Feb",
-		"Mar",
-		"Apr",
-		"May",
-		"Jun",
-		"Jul",
-		"Aug",
-		"Sep",
-		"Oct",
-		"Nov",
-		"Dec",
-	];
-
-	const dayOfWeek = days[date.getDay()];
-	const month = months[date.getMonth()];
-	const dayOfMonth = date.getDate();
-
-	return `${dayOfWeek}, ${month} ${dayOfMonth}`;
+// Helper function to get user from Supabase
+const getUser = async () => {
+	const { data: { user } } = await supabase.auth.getUser();
+	return user;
 };
 
-// Function to get current month name
-const getMonthName = (date: Date) => {
-	const months = [
-		"Jan",
-		"Feb",
-		"Mar",
-		"Apr",
-		"May",
-		"Jun",
-		"Jul",
-		"Aug",
-		"Sep",
-		"Oct",
-		"Nov",
-		"Dec",
-	];
-	return months[date.getMonth()];
+// Helper function to get workout plans for a specific date
+const getWorkoutPlans = async (userId: string, date: string): Promise<WorkoutPlan[]> => {
+	const { data, error } = await supabase
+		.from("workout_plans")
+		.select(
+			`
+      id,
+      scheduled_date,
+      scheduled_time,
+      workouts:workout_id (id, title, duration, calories, difficulty, image_url)
+    `
+		)
+		.eq("user_id", userId)
+		.eq("scheduled_date", date);
+
+	if (error) throw error;
+	return data as unknown as WorkoutPlan[];
 };
+
+// Helper function to generate week dates
+const getWeekDates = () => {
+	const dates = [];
+	const today = new Date();
+	const dayOfWeek = today.getDay();
+
+	// Calculate the start of the week (Sunday)
+	const startDate = new Date(today);
+	startDate.setDate(today.getDate() - dayOfWeek);
+
+	// Generate dates for the week
+	for (let i = 0; i < 7; i++) {
+		const date = new Date(startDate);
+		date.setDate(startDate.getDate() + i);
+		dates.push({
+			date: date.getDate(),
+			day: ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][i],
+			isToday: i === dayOfWeek,
+			fullDate: date.toISOString().split('T')[0] // format: YYYY-MM-DD
+		});
+	}
+	return dates;
+};
+
+const weekDates = getWeekDates();
 
 export default function PlanScreen() {
 	const { width } = useWindowDimensions();
@@ -261,6 +192,11 @@ export default function PlanScreen() {
 	// Animation values
 	const fadeAnim = useRef(new Animated.Value(0)).current;
 	const slideAnim = useRef(new Animated.Value(20)).current;
+	
+	// Success modal animation values
+	const successScaleAnim = useRef(new Animated.Value(0.3)).current;
+	const successOpacityAnim = useRef(new Animated.Value(0)).current;
+	const checkmarkScaleAnim = useRef(new Animated.Value(0)).current;
 
 	// Calculate responsive sizes
 	const contentPadding = isExtraLargeDevice
@@ -278,6 +214,22 @@ export default function PlanScreen() {
 	const [calendarMonth, setCalendarMonth] = useState(new Date());
 	const [showYearSelector, setShowYearSelector] = useState(false);
 	const [selectedCalendarDate, setSelectedCalendarDate] = useState(new Date());
+	const [workoutSchedule, setWorkoutSchedule] = useState<WorkoutScheduleDay[]>([
+		{ day: 0, workouts: [] },
+		{ day: 1, workouts: [] },
+		{ day: 2, workouts: [] },
+		{ day: 3, workouts: [] },
+		{ day: 4, workouts: [] },
+		{ day: 5, workouts: [] },
+		{ day: 6, workouts: [] },
+	]);
+	const [isLoading, setIsLoading] = useState(true);
+	const [menuVisible, setMenuVisible] = useState(false);
+	const [selectedWorkoutPlan, setSelectedWorkoutPlan] = useState<{id: string, title: string} | null>(null);
+	const [showSuccessModal, setShowSuccessModal] = useState(false);
+	const [deletedWorkoutTitle, setDeletedWorkoutTitle] = useState("");
+	const [weeklyProgress, setWeeklyProgress] = useState<WeeklyProgressItem[]>([]);
+	const [weeklyProgressPercent, setWeeklyProgressPercent] = useState(0);
 
 	// Handle calendar icon press in header
 	const handleCalendarPress = () => {
@@ -350,20 +302,256 @@ export default function PlanScreen() {
 		setShowCalendarModal(false);
 	};
 
+	// Function to delete a workout from the plan
+	const deleteWorkout = async (planId: string) => {
+		try {
+			// Close the menu
+			setMenuVisible(false);
+			
+			// Store the workout title before deleting
+			const workoutTitle = selectedWorkoutPlan?.title || "Workout";
+			setDeletedWorkoutTitle(workoutTitle);
+			
+			// Get the current user
+			const user = await getUser();
+			if (!user) return;
+			
+			// Delete from database
+			const { error } = await supabase
+				.from("workout_plans")
+				.delete()
+				.eq("id", planId);
+				
+			if (error) throw error;
+			
+			// Refresh the data
+			fetchWorkoutSchedule();
+			
+			// Show success modal instead of Alert
+			setShowSuccessModal(true);
+			
+			// Animate the success modal elements
+			Animated.sequence([
+				Animated.parallel([
+					Animated.timing(successScaleAnim, {
+						toValue: 1,
+						duration: 300,
+						useNativeDriver: true,
+					}),
+					Animated.timing(successOpacityAnim, {
+						toValue: 1,
+						duration: 300,
+						useNativeDriver: true,
+					}),
+				]),
+				Animated.timing(checkmarkScaleAnim, {
+					toValue: 1,
+					duration: 200,
+					useNativeDriver: true,
+				}),
+			]).start();
+			
+			// Auto-hide the success modal after 2.5 seconds
+			setTimeout(() => {
+				setShowSuccessModal(false);
+				// Reset animation values
+				successScaleAnim.setValue(0.3);
+				successOpacityAnim.setValue(0);
+				checkmarkScaleAnim.setValue(0);
+			}, 2500);
+			
+		} catch (error) {
+			console.error("Error deleting workout:", error);
+			Alert.alert("Error", "Failed to remove workout. Please try again.");
+		}
+	};
+	
+	// Function to handle opening the menu
+	const handleOpenMenu = (workout: Workout, planId: string) => {
+		setSelectedWorkoutPlan({
+			id: planId,
+			title: workout.title
+		});
+		setMenuVisible(true);
+	};
+
 	// Function to fetch workout schedule data
 	const fetchWorkoutSchedule = async () => {
 		try {
-			// In a real implementation, this would fetch data from your API/Supabase
-			await new Promise((resolve) => setTimeout(resolve, 1000));
+			setIsLoading(true);
+			
+			// Get the current user
+			const user = await getUser();
+			if (!user) {
+				setIsLoading(false);
+				return;
+			}
+			
+			// Prepare an empty schedule structure
+			const newSchedule: WorkoutScheduleDay[] = Array(7).fill(0).map((_, i) => ({
+				day: i,
+				workouts: []
+			}));
+			
+			// Get today's date and create dates for the entire week
+			const today = new Date();
+			
+			// Fetch workout plans for each day of the week
+			for (let i = 0; i < 7; i++) {
+				try {
+					const plans = await getWorkoutPlans(user.id, weekDates[i].fullDate);
+					
+					if (plans && plans.length > 0) {
+						// Convert to our Workout format
+						const workoutsForDay = plans.map(plan => ({
+							id: plan.workouts.id,
+							planId: plan.id,
+							title: plan.workouts.title,
+							duration: `${plan.workouts.duration || 30} mins`,
+							intensity: plan.workouts.difficulty || "Medium",
+							calories: `${plan.workouts.calories || 0}`,
+							completed: false, // We could check if it's completed in a real app
+							imageUrl: plan.workouts.image_url || "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=500&q=80",
+							time: plan.scheduled_time || "Any time",
+							exercises: [] // Could be fetched in a real app
+						}));
+						
+						// Add to schedule
+						newSchedule[i].workouts = workoutsForDay;
+					}
+				} catch (error) {
+					console.error(`Error fetching workouts for day ${i}:`, error);
+				}
+			}
+			
+			// Update the workout schedule state
+			setWorkoutSchedule(newSchedule);
+			setIsLoading(false);
 		} catch (error) {
 			console.error("Error fetching workout schedule:", error);
+			setIsLoading(false);
+		}
+	};
+
+	// Function to fetch weekly progress data
+	const fetchWeeklyProgress = async () => {
+		try {
+			// Get the current user
+			const user = await getUser();
+			if (!user) return;
+			
+			// Get the start and end dates of the current week
+			const today = new Date();
+			const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
+			
+			// Calculate the start date (Sunday) of the current week
+			const startDate = new Date(today);
+			startDate.setDate(today.getDate() - dayOfWeek);
+			startDate.setHours(0, 0, 0, 0);
+			
+			// Calculate the end date (Saturday) of the current week
+			const endDate = new Date(startDate);
+			endDate.setDate(startDate.getDate() + 6);
+			endDate.setHours(23, 59, 59, 999);
+			
+			// Format dates for query
+			const startDateStr = startDate.toISOString().split("T")[0];
+			const endDateStr = endDate.toISOString().split("T")[0];
+			
+			// Query for all scheduled workouts in the date range
+			const { data: scheduledWorkouts, error: scheduleError } = await supabase
+				.from("workout_plans")
+				.select(`
+					id,
+					scheduled_date,
+					workout_id
+				`)
+				.eq("user_id", user.id)
+				.gte("scheduled_date", startDateStr)
+				.lte("scheduled_date", endDateStr)
+				.order("scheduled_date", { ascending: true });
+				
+			if (scheduleError) throw scheduleError;
+			
+			// Query for completed workouts in the user_workouts table
+			const { data: completedWorkouts, error: completedError } = await supabase
+				.from("user_workouts")
+				.select(`
+					id,
+					workout_id,
+					completed_at
+				`)
+				.eq("user_id", user.id)
+				.gte("completed_at", startDate.toISOString())
+				.lte("completed_at", endDate.toISOString());
+				
+			if (completedError) throw completedError;
+			
+			// Organize data by day of week
+			const progressByDay: Record<number, {completed: number, total: number, date: string}> = {};
+			
+			// Initialize with empty counts for all days
+			for (let i = 0; i < 7; i++) {
+				const dayDate = new Date(startDate);
+				dayDate.setDate(startDate.getDate() + i);
+				progressByDay[i] = {
+					completed: 0,
+					total: 0,
+					date: dayDate.toISOString().split('T')[0]
+				};
+			}
+			
+			// Count scheduled workouts by day
+			scheduledWorkouts?.forEach(workout => {
+				const workoutDate = new Date(workout.scheduled_date);
+				const dayIndex = workoutDate.getDay();
+				progressByDay[dayIndex].total += 1;
+			});
+			
+			// Get completed workout IDs
+			const completedWorkoutIds = new Set(completedWorkouts?.map(workout => workout.workout_id) || []);
+			
+			// Count completed workouts based on completed workout IDs
+			scheduledWorkouts?.forEach(workout => {
+				if (completedWorkoutIds.has(workout.workout_id)) {
+					const workoutDate = new Date(workout.scheduled_date);
+					const dayIndex = workoutDate.getDay();
+					progressByDay[dayIndex].completed += 1;
+				}
+			});
+			
+			// Convert to array format for display
+			const progressData: WeeklyProgressItem[] = Object.entries(progressByDay).map(([dayIndex, data]) => ({
+				day: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][parseInt(dayIndex)],
+				value: data.completed,
+				target: data.total,
+				date: data.date
+			}));
+			
+			setWeeklyProgress(progressData);
+			
+			// Calculate overall weekly progress percentage
+			const totalCompleted = progressData.reduce((sum, day) => sum + day.value, 0);
+			const totalTarget = progressData.reduce((sum, day) => sum + day.target, 0);
+			const progressPercent = totalTarget > 0 ? Math.round((totalCompleted / totalTarget) * 100) : 0;
+			
+			setWeeklyProgressPercent(progressPercent);
+			
+		} catch (error) {
+			console.error("Error fetching weekly progress:", error);
 		}
 	};
 
 	const onRefresh = useCallback(async () => {
 		setRefreshing(true);
-		await fetchWorkoutSchedule();
+		await Promise.all([fetchWorkoutSchedule(), fetchWeeklyProgress()]);
 		setRefreshing(false);
+	}, []);
+
+	// Fetch data on mount
+	useEffect(() => {
+		fetchWorkoutSchedule();
+		fetchWeeklyProgress();
 	}, []);
 
 	const selectedDayWorkouts =
@@ -386,26 +574,29 @@ export default function PlanScreen() {
 		]).start();
 	}, []);
 
-	// Get weekly workout stats
-	const totalWeeklyWorkouts = completedWorkouts.reduce(
+	// Get weekly workout stats - Use actual data instead of static completedWorkouts
+	const totalWeeklyWorkouts = weeklyProgress.reduce(
 		(acc, curr) => acc + curr.value,
 		0
 	);
-	const totalWeeklyTargets = completedWorkouts.reduce(
+	const totalWeeklyTargets = weeklyProgress.reduce(
 		(acc, curr) => acc + curr.target,
 		0
 	);
-	const weeklyProgress =
-		totalWeeklyTargets > 0
-			? Math.round((totalWeeklyWorkouts / totalWeeklyTargets) * 100)
-			: 0;
+	// Use the calculated percentage directly
+	// const weeklyProgress =
+	//	totalWeeklyTargets > 0
+	//		? Math.round((totalWeeklyWorkouts / totalWeeklyTargets) * 100)
+	//		: 0;
 
 	// Add function to generate years for selector
 	const generateYearOptions = () => {
-		const currentYear = new Date().getFullYear();
+		const startYear = 1950;
+		const endYear = 2050;
 		const years = [];
-		// Show 5 years before and 10 years after current year
-		for (let year = currentYear - 5; year <= currentYear + 10; year++) {
+
+		// Show years from 1950 to 2050
+		for (let year = startYear; year <= endYear; year++) {
 			years.push(year);
 		}
 		return years;
@@ -413,6 +604,7 @@ export default function PlanScreen() {
 
 	// Add function to handle year selection
 	const selectYear = (year: number) => {
+		// Update the calendar month with the new year
 		const newDate = new Date(calendarMonth);
 		newDate.setFullYear(year);
 		setCalendarMonth(newDate);
@@ -422,6 +614,10 @@ export default function PlanScreen() {
 		newSelectedDate.setFullYear(year);
 		setSelectedCalendarDate(newSelectedDate);
 
+		// Update the month display with the new year
+		setMonthDisplay(formatDate(newSelectedDate));
+
+		// Close the year selector
 		setShowYearSelector(false);
 	};
 
@@ -590,93 +786,71 @@ export default function PlanScreen() {
 											fontWeight: "600",
 										}}
 									>
-										{totalWeeklyWorkouts}/{totalWeeklyTargets} completed
+										{weeklyProgressPercent}% Complete
 									</Text>
 								</View>
 							</View>
-
-							{/* Progress visualization */}
-							<View className="flex-row justify-between items-end mb-2">
-								{completedWorkouts.map((day, index) => (
-									<View key={index} className="items-center">
-										<View
-											className="relative"
-											style={{ width: isSmallDevice ? 25 : 30 }}
-										>
-											<View
-												className="rounded-t-md mb-2"
-												style={{
-													width: isSmallDevice ? 8 : 10,
-													height: day.target
-														? isSmallDevice
-															? 70 * (day.target / 1)
-															: 90 * (day.target / 1)
-														: 4,
-													backgroundColor: isDarkMode ? "#374151" : "#E5E7EB",
-													alignSelf: "center",
-												}}
-											>
-												{day.value > 0 && (
-													<View
-														className="absolute bottom-0 rounded-t-md"
-														style={{
-															width: isSmallDevice ? 8 : 10,
-															height: day.value
-																? isSmallDevice
-																	? 70 * (day.value / 1)
-																	: 90 * (day.value / 1)
-																: 0,
-															backgroundColor: isDarkMode
-																? "#8B5CF6"
-																: "#6366F1",
-														}}
-													/>
-												)}
+							
+							{/* Weekly progress visualization */}
+							<View className="flex-row justify-between items-end mt-2 mb-2">
+								{weeklyProgress.map((dayProgress, index) => {
+									const height = dayProgress.target > 0 
+										? (dayProgress.value / dayProgress.target) * 100 
+										: 0;
+									
+									return (
+										<View key={index} className="items-center">
+											<View className="mb-2">
+												<Text
+													style={{
+														color: colors.secondaryText,
+														fontSize: 12,
+														marginBottom: 6,
+													}}
+												>
+													{dayProgress.day}
+												</Text>
+												
+												<View
+													style={{
+														width: isSmallDevice ? 24 : 28,
+														height: 100,
+														borderRadius: 14,
+														backgroundColor: isDarkMode ? "#1F2937" : "#F3F4F6",
+														overflow: "hidden",
+														justifyContent: "flex-end",
+													}}
+												>
+													{dayProgress.value > 0 && (
+														<View
+															style={{
+																width: "100%",
+																height: `${height}%`,
+																backgroundColor: isDarkMode ? "#8B5CF6" : "#6366F1",
+																borderTopLeftRadius: 12,
+																borderTopRightRadius: 12,
+															}}
+														/>
+													)}
+												</View>
 											</View>
+											
 											<Text
 												style={{
-													color: colors.secondaryText,
-													fontSize: isSmallDevice ? 10 : 12,
-													textAlign: "center",
+													color: isDarkMode 
+														? dayProgress.value > 0 ? "#C4B5FD" : colors.secondaryText
+														: dayProgress.value > 0 ? "#4F46E5" : colors.secondaryText,
+													fontSize: 12,
+													fontWeight: dayProgress.value > 0 ? "600" : "400",
+													marginTop: 4,
 												}}
 											>
-												{day.day}
+												{dayProgress.value}/{dayProgress.target}
 											</Text>
 										</View>
-									</View>
-								))}
+									);
+								})}
 							</View>
-
-							{/* Progress bar */}
-							<View
-								className="h-2 rounded-full overflow-hidden mt-3"
-								style={{
-									backgroundColor: isDarkMode ? "#374151" : "#E5E7EB",
-									marginTop: 10,
-									flexDirection: "row",
-								}}
-							>
-								<View
-									style={{
-										flex: weeklyProgress,
-										height: "100%",
-										backgroundColor: isDarkMode ? "#8B5CF6" : "#6366F1",
-									}}
-								/>
-								<View style={{ flex: 100 - weeklyProgress }} />
-							</View>
-
-							<Text
-								style={{
-									color: colors.secondaryText,
-									fontSize: 12,
-									marginTop: 8,
-									textAlign: "right",
-									fontWeight: "500",
-								}}
-							>
-								{weeklyProgress + "% of weekly goal"}
-							</Text>
 						</View>
 					</Animated.View>
 
@@ -1084,6 +1258,7 @@ export default function PlanScreen() {
 															paddingVertical: 6,
 															borderRadius: 12,
 														}}
+														onPress={() => router.push(`/workout-player/${workout.id}` as any)}
 													>
 														<Text
 															style={{
@@ -1096,7 +1271,10 @@ export default function PlanScreen() {
 														</Text>
 													</TouchableOpacity>
 
-													<TouchableOpacity>
+													<TouchableOpacity onPress={(e) => {
+														e.stopPropagation();
+														handleOpenMenu(workout, workout.planId);
+													}}>
 														<MoreVertical
 															size={isSmallDevice ? 14 : 16}
 															color={colors.secondaryText}
@@ -1107,7 +1285,7 @@ export default function PlanScreen() {
 										</View>
 									</View>
 
-									{/* Exercise details section */}
+									{/* Exercise details section - only show if we have exercises */}
 									{workout.exercises && workout.exercises.length > 0 && (
 										<View
 											style={{
@@ -1287,6 +1465,117 @@ export default function PlanScreen() {
 				</View>
 			</View>
 
+			{/* Success Modal */}
+			<Modal
+				visible={showSuccessModal}
+				transparent={true}
+				animationType="fade"
+				onRequestClose={() => setShowSuccessModal(false)}
+			>
+				<View
+					style={{
+						flex: 1,
+						backgroundColor: 'rgba(0,0,0,0.5)',
+						justifyContent: 'center',
+						alignItems: 'center',
+					}}
+				>
+					<Animated.View
+						style={{
+							backgroundColor: colors.card,
+							borderRadius: 24,
+							width: '80%',
+							maxWidth: 300,
+							padding: 24,
+							alignItems: 'center',
+							shadowColor: "#000",
+							shadowOffset: { width: 0, height: 10 },
+							shadowOpacity: 0.25,
+							shadowRadius: 15,
+							elevation: 8,
+							transform: [{ scale: successScaleAnim }],
+							opacity: successOpacityAnim,
+						}}
+					>
+						<View
+							style={{
+								width: 80,
+								height: 80,
+								borderRadius: 40,
+								backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+								justifyContent: 'center',
+								alignItems: 'center',
+								marginBottom: 20,
+							}}
+						>
+							<Animated.View
+								style={{
+									transform: [{ scale: checkmarkScaleAnim }],
+								}}
+							>
+								<CheckCircle
+									size={48}
+									color={isDarkMode ? '#A78BFA' : '#6366F1'}
+									fill={isDarkMode ? 'rgba(139, 92, 246, 0.3)' : 'rgba(99, 102, 241, 0.2)'}
+									strokeWidth={1.5}
+								/>
+							</Animated.View>
+						</View>
+						
+						<Text
+							style={{
+								fontSize: 20,
+								fontWeight: '700',
+								color: colors.text,
+								marginBottom: 8,
+								textAlign: 'center',
+							}}
+						>
+							Workout Removed
+						</Text>
+						
+						<Text
+							style={{
+								fontSize: 15,
+								color: colors.secondaryText,
+								textAlign: 'center',
+								marginBottom: 20,
+								lineHeight: 20,
+							}}
+						>
+							"{deletedWorkoutTitle}" has been removed from your workout plan.
+						</Text>
+						
+						<TouchableOpacity
+							style={{
+								paddingVertical: 12,
+								paddingHorizontal: 24,
+								backgroundColor: isDarkMode ? '#7C3AED' : '#6366F1',
+								borderRadius: 12,
+								width: '100%',
+								shadowColor: "#000",
+								shadowOffset: { width: 0, height: 3 },
+								shadowOpacity: isDarkMode ? 0.3 : 0.1,
+								shadowRadius: 6,
+								elevation: 3,
+							}}
+							onPress={() => setShowSuccessModal(false)}
+						>
+							<Text
+								style={{
+									color: '#FFFFFF',
+									fontWeight: '600',
+									fontSize: 16,
+									textAlign: 'center',
+								}}
+							>
+								Got it
+							</Text>
+						</TouchableOpacity>
+					</Animated.View>
+				</View>
+			</Modal>
+
 			{/* Calendar Modal */}
 			<Modal
 				animationType="slide"
@@ -1314,229 +1603,391 @@ export default function PlanScreen() {
 							shadowOpacity: 0.25,
 							shadowRadius: 4,
 							elevation: 5,
+							overflow: "hidden",
 						}}
 					>
-						{/* Date header with simple layout */}
-						<View
-							style={{
-								borderBottomWidth: 1,
-								borderBottomColor: isDarkMode
-									? "rgba(255,255,255,0.1)"
-									: "rgba(0,0,0,0.05)",
-								paddingBottom: 16,
-								marginBottom: 16,
-							}}
+						<ScrollView
+							showsVerticalScrollIndicator={false}
+							contentContainerStyle={{ paddingBottom: 10 }}
 						>
-							{/* Year and date display */}
-							<View className="flex flex-row justify-between items-center">
-								<View>
+							{/* Date header with simple layout */}
+							<View
+								style={{
+									borderBottomWidth: 1,
+									borderBottomColor: isDarkMode
+										? "rgba(255,255,255,0.1)"
+										: "rgba(0,0,0,0.05)",
+									paddingBottom: 16,
+									marginBottom: 16,
+								}}
+							>
+								{/* Year and date display */}
+								<View className="flex flex-row justify-between items-center">
+									<View>
+										<View className="flex-row items-center">
+											<TouchableOpacity
+												onPress={() => setShowYearSelector(!showYearSelector)}
+											>
+												<Text
+													style={{
+														color: colors.secondaryText,
+														fontSize: 16,
+														fontWeight: "600",
+														textDecorationLine: "underline",
+													}}
+												>
+													{selectedCalendarDate.getFullYear()}
+												</Text>
+											</TouchableOpacity>
+											<ChevronRight
+												size={12}
+												color={colors.secondaryText}
+												style={{ marginLeft: 3, marginTop: 2 }}
+											/>
+										</View>
+										<Text
+											style={{
+												color: colors.text,
+												fontSize: 20,
+												fontWeight: "700",
+												marginTop: 4,
+											}}
+										>
+											{formatDisplayDate(selectedCalendarDate)}
+										</Text>
+									</View>
+
+									{/* Time display */}
 									<Text
 										style={{
 											color: colors.secondaryText,
 											fontSize: 16,
-											fontWeight: "600",
+											fontWeight: "500",
 										}}
 									>
-										{selectedCalendarDate.getFullYear()}
+										{new Date().toLocaleTimeString([], {
+											hour: "2-digit",
+											minute: "2-digit",
+										})}
 									</Text>
+								</View>
+							</View>
+
+							{/* Year selector dropdown */}
+							{showYearSelector && (
+								<View
+									style={{
+										maxHeight: 220,
+										backgroundColor: colors.card,
+										borderRadius: 12,
+										marginBottom: 16,
+										borderWidth: 1,
+										borderColor: isDarkMode
+											? "rgba(255,255,255,0.1)"
+											: "rgba(0,0,0,0.05)",
+										shadowColor: "#000",
+										shadowOffset: { width: 0, height: 4 },
+										shadowOpacity: isDarkMode ? 0.3 : 0.1,
+										shadowRadius: 4,
+										elevation: 3,
+									}}
+								>
+									<View
+										style={{
+											flexDirection: "row",
+											justifyContent: "space-between",
+											alignItems: "center",
+											paddingHorizontal: 16,
+											paddingVertical: 10,
+											borderBottomWidth: 1,
+											borderBottomColor: isDarkMode
+												? "rgba(255,255,255,0.1)"
+												: "rgba(0,0,0,0.05)",
+										}}
+									>
+										<Text
+											style={{
+												fontSize: 17,
+												fontWeight: "700",
+												color: colors.text,
+											}}
+										>
+											Select Year
+										</Text>
+										<TouchableOpacity
+											onPress={() => setShowYearSelector(false)}
+											style={{
+												width: 30,
+												height: 30,
+												alignItems: "center",
+												justifyContent: "center",
+												borderRadius: 15,
+												backgroundColor: isDarkMode
+													? "rgba(255,255,255,0.1)"
+													: "rgba(0,0,0,0.05)",
+											}}
+										>
+											<Text style={{ color: colors.text, fontSize: 18 }}>
+												×
+											</Text>
+										</TouchableOpacity>
+									</View>
+
+									<ScrollView
+										style={{ maxHeight: 160 }}
+										showsVerticalScrollIndicator={true}
+										indicatorStyle={isDarkMode ? "white" : "black"}
+										contentContainerStyle={{ padding: 4 }}
+									>
+										<View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+											{generateYearOptions().map((year) => (
+												<TouchableOpacity
+													key={year}
+													onPress={() => selectYear(year)}
+													style={{
+														width: "25%",
+														padding: 2,
+													}}
+												>
+													<View
+														style={{
+															padding: 4,
+															borderRadius: 6,
+															alignItems: "center",
+															justifyContent: "center",
+															height: 32,
+															backgroundColor:
+																year === calendarMonth.getFullYear()
+																	? isDarkMode
+																		? "rgba(139, 92, 246, 0.2)"
+																		: "rgba(99, 102, 241, 0.1)"
+																	: "transparent",
+															borderWidth:
+																year === new Date().getFullYear() ? 1 : 0,
+															borderColor: isDarkMode ? "#A78BFA" : "#6366F1",
+														}}
+													>
+														<Text
+															style={{
+																fontSize: 14,
+																fontWeight:
+																	year === calendarMonth.getFullYear()
+																		? "700"
+																		: year === new Date().getFullYear()
+																		? "600"
+																		: "400",
+																color:
+																	year === calendarMonth.getFullYear()
+																		? isDarkMode
+																			? "#A78BFA"
+																			: "#6366F1"
+																		: year === new Date().getFullYear()
+																		? isDarkMode
+																			? "#C4B5FD"
+																			: "#4F46E5"
+																		: colors.text,
+															}}
+														>
+															{year}
+														</Text>
+													</View>
+												</TouchableOpacity>
+											))}
+										</View>
+									</ScrollView>
+								</View>
+							)}
+
+							{/* Month navigation header */}
+							<View className="flex-row justify-between items-center mb-6">
+								<TouchableOpacity
+									onPress={() => navigateMonth(-1)}
+									style={{
+										width: 36,
+										height: 36,
+										alignItems: "center",
+										justifyContent: "center",
+										borderRadius: 18,
+										backgroundColor: isDarkMode
+											? "rgba(139, 92, 246, 0.15)"
+											: "rgba(99, 102, 241, 0.08)",
+									}}
+								>
+									<ChevronLeft
+										size={18}
+										color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+										strokeWidth={2.5}
+									/>
+								</TouchableOpacity>
+
+								<View
+									className="flex-row items-center justify-center"
+									style={{ minWidth: 140 }}
+								>
 									<Text
 										style={{
 											color: colors.text,
-											fontSize: 20,
+											fontSize: 18,
 											fontWeight: "700",
-											marginTop: 4,
+											textAlign: "center",
 										}}
 									>
-										{formatDisplayDate(selectedCalendarDate)}
+										{getMonthName(calendarMonth)}
 									</Text>
+									<TouchableOpacity
+										onPress={() => setShowYearSelector(!showYearSelector)}
+										style={{ marginLeft: 5 }}
+									>
+										<Text
+											style={{
+												color: isDarkMode ? "#A78BFA" : "#6366F1",
+												fontSize: 18,
+												fontWeight: "700",
+												textDecorationLine: "underline",
+											}}
+										>
+											{calendarMonth.getFullYear()}
+										</Text>
+									</TouchableOpacity>
 								</View>
 
-								{/* Time display */}
-								<Text
+								<TouchableOpacity
+									onPress={() => navigateMonth(1)}
 									style={{
-										color: colors.secondaryText,
-										fontSize: 16,
-										fontWeight: "500",
+										width: 36,
+										height: 36,
+										alignItems: "center",
+										justifyContent: "center",
+										borderRadius: 18,
+										backgroundColor: isDarkMode
+											? "rgba(139, 92, 246, 0.15)"
+											: "rgba(99, 102, 241, 0.08)",
 									}}
 								>
-									{new Date().toLocaleTimeString([], {
-										hour: "2-digit",
-										minute: "2-digit",
-									})}
-								</Text>
-							</View>
-						</View>
-
-						{/* Month navigation header */}
-						<View className="flex-row justify-between items-center mb-6">
-							<TouchableOpacity
-								onPress={() => navigateMonth(-1)}
-								style={{
-									width: 36,
-									height: 36,
-									alignItems: "center",
-									justifyContent: "center",
-									borderRadius: 18,
-									backgroundColor: isDarkMode
-										? "rgba(139, 92, 246, 0.15)"
-										: "rgba(99, 102, 241, 0.08)",
-								}}
-							>
-								<ChevronLeft
-									size={18}
-									color={isDarkMode ? "#8B5CF6" : "#6366F1"}
-									strokeWidth={2.5}
-								/>
-							</TouchableOpacity>
-
-							<View className="flex-row items-center">
-								<Text
-									style={{
-										color: colors.text,
-										fontSize: 16,
-										fontWeight: "600",
-									}}
-								>
-									{getMonthName(calendarMonth)} {calendarMonth.getFullYear()}
-								</Text>
+									<ChevronRight
+										size={18}
+										color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+										strokeWidth={2.5}
+									/>
+								</TouchableOpacity>
 							</View>
 
-							<TouchableOpacity
-								onPress={() => navigateMonth(1)}
-								style={{
-									width: 36,
-									height: 36,
-									alignItems: "center",
-									justifyContent: "center",
-									borderRadius: 18,
-									backgroundColor: isDarkMode
-										? "rgba(139, 92, 246, 0.15)"
-										: "rgba(99, 102, 241, 0.08)",
-								}}
-							>
-								<ChevronRight
-									size={18}
-									color={isDarkMode ? "#8B5CF6" : "#6366F1"}
-									strokeWidth={2.5}
-								/>
-							</TouchableOpacity>
-						</View>
+							{/* Calendar days of week header */}
+							<View className="flex-row justify-between mb-4">
+								{["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].map(
+									(day, index) => (
+										<Text
+											key={index}
+											style={{
+												color: colors.secondaryText,
+												width: "14.28%",
+												textAlign: "center",
+												fontSize: 10,
+												fontWeight: "600",
+											}}
+										>
+											{day}
+										</Text>
+									)
+								)}
+							</View>
 
-						{/* Calendar days of week header */}
-						<View className="flex-row justify-between mb-4">
-							{["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].map(
-								(day, index) => (
-									<Text
-										key={index}
-										style={{
-											color: colors.secondaryText,
-											width: "14.28%",
-											textAlign: "center",
-											fontSize: 10,
-											fontWeight: "600",
-										}}
-									>
-										{day}
-									</Text>
-								)
-							)}
-						</View>
+							{/* Calendar dates grid */}
+							<View className="flex-wrap flex-row mb-5">
+								{getDaysInMonth(
+									calendarMonth.getFullYear(),
+									calendarMonth.getMonth()
+								).map((day, index) => {
+									// Check if this day is today
+									const isToday =
+										day === new Date().getDate() &&
+										calendarMonth.getMonth() === new Date().getMonth() &&
+										calendarMonth.getFullYear() === new Date().getFullYear();
 
-						{/* Calendar dates grid */}
-						<View className="flex-wrap flex-row mb-5">
-							{getDaysInMonth(
-								calendarMonth.getFullYear(),
-								calendarMonth.getMonth()
-							).map((day, index) => {
-								// Check if this day is today
-								const isToday =
-									day === new Date().getDate() &&
-									calendarMonth.getMonth() === new Date().getMonth() &&
-									calendarMonth.getFullYear() === new Date().getFullYear();
+									// Get selected date properties
+									const isSelected =
+										day === selectedCalendarDate.getDate() &&
+										calendarMonth.getMonth() ===
+											selectedCalendarDate.getMonth() &&
+										calendarMonth.getFullYear() ===
+											selectedCalendarDate.getFullYear();
 
-								// Get selected date properties
-								const isSelected =
-									day === selectedCalendarDate.getDate() &&
-									calendarMonth.getMonth() ===
-										selectedCalendarDate.getMonth() &&
-									calendarMonth.getFullYear() ===
-										selectedCalendarDate.getFullYear();
+									// Check if this day has a scheduled workout
+									const hasWorkout =
+										day &&
+										workoutSchedule.some((schedule) => {
+											const scheduleDate = new Date(today);
+											scheduleDate.setDate(day as number);
+											return (
+												schedule.day === scheduleDate.getDay() &&
+												schedule.workouts.length > 0
+											);
+										});
 
-								// Check if this day has a scheduled workout
-								const hasWorkout =
-									day &&
-									workoutSchedule.some((schedule) => {
-										const scheduleDate = new Date(today);
-										scheduleDate.setDate(day as number);
-										return (
-											schedule.day === scheduleDate.getDay() &&
-											schedule.workouts.length > 0
-										);
-									});
-
-								return (
-									<View
-										key={index}
-										style={{
-											width: "14.28%",
-											height: 46,
-											padding: 2,
-											alignItems: "center",
-											justifyContent: "center",
-										}}
-									>
-										{day ? (
-											<TouchableOpacity
-												className="items-center justify-center"
-												style={{
-													width: 36,
-													height: 36,
-													borderRadius: 36,
-													backgroundColor: isSelected
-														? isDarkMode
-															? "#6D28D9"
-															: "#4F46E5"
-														: isToday
-														? isDarkMode
-															? "rgba(139, 92, 246, 0.2)"
-															: "rgba(99, 102, 241, 0.1)"
-														: "transparent",
-												}}
-												onPress={() => selectDate(day)}
-											>
-												<Text
+									return (
+										<View
+											key={index}
+											style={{
+												width: "14.28%",
+												height: 46,
+												padding: 2,
+												alignItems: "center",
+												justifyContent: "center",
+											}}
+										>
+											{day ? (
+												<TouchableOpacity
+													className="items-center justify-center"
 													style={{
-														color: isSelected
-															? "#FFFFFF"
+														width: 36,
+														height: 36,
+														borderRadius: 36,
+														backgroundColor: isSelected
+															? isDarkMode
+																? "#6D28D9"
+																: "#4F46E5"
 															: isToday
 															? isDarkMode
-																? "#C4B5FD"
-																: "#4F46E5"
-															: colors.text,
-														fontWeight: isSelected || isToday ? "600" : "400",
-														fontSize: 15,
+																? "rgba(139, 92, 246, 0.2)"
+																: "rgba(99, 102, 241, 0.1)"
+															: "transparent",
 													}}
+													onPress={() => selectDate(day)}
 												>
-													{day < 10 ? `0${day}` : day}
-												</Text>
-												{hasWorkout && !isSelected && (
-													<View
-														className="h-1 w-1 rounded-full mt-1"
+													<Text
 														style={{
-															backgroundColor: isDarkMode
-																? "#8B5CF6"
-																: "#6366F1",
+															color: isSelected
+																? "#FFFFFF"
+																: isToday
+																? isDarkMode
+																	? "#C4B5FD"
+																	: "#4F46E5"
+																: colors.text,
+															fontWeight: isSelected || isToday ? "600" : "400",
+															fontSize: 15,
 														}}
-													/>
-												)}
-											</TouchableOpacity>
-										) : (
-											<View style={{ width: 36, height: 36 }} />
-										)}
-									</View>
-								);
-							})}
-						</View>
+													>
+														{day < 10 ? `0${day}` : day}
+													</Text>
+													{hasWorkout && !isSelected && (
+														<View
+															className="h-1 w-1 rounded-full mt-1"
+															style={{
+																backgroundColor: isDarkMode
+																	? "#8B5CF6"
+																	: "#6366F1",
+															}}
+														/>
+													)}
+												</TouchableOpacity>
+											) : (
+												<View style={{ width: 36, height: 36 }} />
+											)}
+										</View>
+									);
+								})}
+							</View>
+						</ScrollView>
 
 						{/* Action button */}
 						<TouchableOpacity
@@ -1558,6 +2009,71 @@ export default function PlanScreen() {
 						</TouchableOpacity>
 					</View>
 				</View>
+			</Modal>
+
+			{/* Menu Modal */}
+			<Modal
+				visible={menuVisible}
+				transparent={true}
+				animationType="fade"
+				onRequestClose={() => setMenuVisible(false)}
+			>
+				<TouchableOpacity
+					style={{
+						flex: 1,
+						backgroundColor: 'rgba(0,0,0,0.5)',
+						justifyContent: 'center',
+						alignItems: 'center',
+					}}
+					activeOpacity={1}
+					onPress={() => setMenuVisible(false)}
+				>
+					<View
+						style={{
+							backgroundColor: colors.card,
+							borderRadius: 12,
+							width: '80%',
+							maxWidth: 320,
+							overflow: 'hidden',
+							shadowColor: "#000",
+							shadowOffset: { width: 0, height: 2 },
+							shadowOpacity: 0.25,
+							shadowRadius: 3.84,
+							elevation: 5,
+						}}
+					>
+						{selectedWorkoutPlan && (
+							<>
+								<View style={{
+									padding: 16,
+									borderBottomWidth: 1, 
+									borderBottomColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'
+								}}>
+									<Text style={{
+										color: colors.text,
+										fontSize: 18,
+										fontWeight: '600',
+										textAlign: 'center'
+									}}>
+										{selectedWorkoutPlan.title}
+									</Text>
+								</View>
+
+								<TouchableOpacity
+									style={{ 
+										flexDirection: 'row',
+										alignItems: 'center',
+										padding: 16,
+									}}
+									onPress={() => deleteWorkout(selectedWorkoutPlan.id)}
+								>
+									<Trash2 size={20} color="#EF4444" style={{ marginRight: 12 }} />
+									<Text style={{ color: "#EF4444", fontSize: 16 }}>Remove from Plan</Text>
+								</TouchableOpacity>
+							</>
+						)}
+					</View>
+				</TouchableOpacity>
 			</Modal>
 		</SafeAreaView>
 	);

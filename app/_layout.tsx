@@ -17,6 +17,7 @@ import { User } from "@supabase/supabase-js";
 import ThemeModule, { useTheme, lightTheme, darkTheme } from "./utils/theme";
 const { ThemeProvider } = ThemeModule;
 import { useColorScheme } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -29,9 +30,9 @@ function useProtectedRoute(user: User | null) {
 	useEffect(() => {
 		if (!isNavigationReady) return;
 
-		const inPublicGroup = ["welcome", "signin", "signup"].includes(
+		const inPublicGroup = ["welcome", "signin", "signup", "app"].includes(
 			segments[0] as string
-		);
+		) || (segments[0] === "app" && ["reset-password", "reset-password-confirmation"].includes(segments[1] as string));
 
 		if (!user && !inPublicGroup) {
 			// If user is not signed in and not on a public screen, redirect to welcome
@@ -95,6 +96,17 @@ export default function RootLayout() {
 		// Check if the user is authenticated
 		const checkUser = async () => {
 			try {
+				// Clear any invalid mock user data from AsyncStorage
+				const userData = await AsyncStorage.getItem('current_user');
+				if (userData) {
+					const parsedUser = JSON.parse(userData);
+					// If the user ID is not in UUID format, clear it
+					if (parsedUser.id && typeof parsedUser.id === 'string' && !parsedUser.id.includes('-')) {
+						await AsyncStorage.removeItem('current_user');
+						console.log('Cleared invalid mock user data from AsyncStorage');
+					}
+				}
+				
 				const session = await getSession();
 				setUser(session?.user || null);
 				setIsLoading(false);
@@ -189,6 +201,28 @@ export default function RootLayout() {
 					<Stack.Screen
 						name="settings/index"
 						options={{ headerShown: false }}
+					/>
+					<Stack.Screen
+						name="nutrition/index"
+						options={{ headerShown: false }}
+					/>
+					<Stack.Screen
+						name="app/reset-password"
+						options={{
+							headerShown: true,
+							headerTitle: "Reset Password",
+							gestureEnabled: true,
+							animation: "slide_from_right"
+						}}
+					/>
+					<Stack.Screen
+						name="app/reset-password-confirmation"
+						options={{
+							headerShown: true,
+							headerTitle: "Create New Password",
+							gestureEnabled: false,
+							animation: "slide_from_right"
+						}}
 					/>
 				</Stack>
 			</ThemedApp>

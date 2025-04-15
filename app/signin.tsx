@@ -94,10 +94,7 @@ export default function SignInScreen() {
 	};
 
 	const navigateToResetPassword = () => {
-		Alert.alert(
-			"Reset Password",
-			"Password reset functionality will be implemented soon."
-		);
+		router.push("/app/reset-password" as any);
 	};
 
 	return (
@@ -180,7 +177,7 @@ export default function SignInScreen() {
 							className="items-end"
 							onPress={navigateToResetPassword}
 						>
-							<Text className="text-indigo-600 font-semibold">
+							<Text className="text-indigo-600 font-semibold mt-2">
 								Forgot your password?
 							</Text>
 						</TouchableOpacity>
