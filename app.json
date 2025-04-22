@@ -1,21 +1,27 @@
 {
   "expo": {
-    "name": "test-tempo",
-    "slug": "test-tempo",
+    "name": "Function Fit",
+    "slug": "function-fit",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "myapp",
+    "scheme": "function-fit",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "runtimeVersion": {
+        "policy": "appVersion"
+      }
     },
     "android": {
+      "package": "com.syvexa.functionfit",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "runtimeVersion": "1.0.0",
+      "buildType": "apk"
     },
     "web": {
       "bundler": "metro",
@@ -36,6 +42,18 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "ee535ce1-3976-49ee-933f-d4d5520971be"
+      }
+    },
+    "owner": "akosikhada",
+    "updates": {
+      "url": "https://u.expo.dev/ee535ce1-3976-49ee-933f-d4d5520971be"
     }
   }
 }
