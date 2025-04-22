@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // This utility file contains emergency functions for fixing critical issues
 
@@ -12,11 +12,11 @@ export const forceWorkoutProgressUpdate = async (
   workoutCount: number = 1
 ) => {
   try {
-    console.log('🚨 EMERGENCY: Force updating workout progress');
-    
+    console.log("🚨 EMERGENCY: Force updating workout progress");
+
     // Format today's date
-    const today = new Date().toISOString().split('T')[0];
-    
+    const today = new Date().toISOString().split("T")[0];
+
     // Create stats object with direct values
     const statsObject = {
       calories: calories,
@@ -24,29 +24,42 @@ export const forceWorkoutProgressUpdate = async (
       active_minutes: 30, // Default value
       steps: 0,
       emergency_update: true,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
-    
+
     // Save to AsyncStorage under the standard key
     const statsKey = `user_stats_${userId}_${today}`;
     await AsyncStorage.setItem(statsKey, JSON.stringify(statsObject));
     console.log(`Saved emergency stats to ${statsKey}:`, statsObject);
-    
+
+    // Create a backup with timestamp in case primary storage fails
+    const backupKey = `workout_backup_${Date.now()}`;
+    await AsyncStorage.setItem(
+      backupKey,
+      JSON.stringify({
+        userId,
+        date: today,
+        stats: statsObject,
+        timestamp: Date.now(),
+      })
+    );
+    console.log(`Created backup at ${backupKey}`);
+
     // Set emergency flags
-    await AsyncStorage.setItem('EMERGENCY_FIX_REQUIRED', 'true');
-    await AsyncStorage.setItem('WORKOUT_COUNT_OVERRIDE', String(workoutCount));
-    await AsyncStorage.setItem('CALORIES_OVERRIDE', String(calories));
-    
+    await AsyncStorage.setItem("EMERGENCY_FIX_REQUIRED", "true");
+    await AsyncStorage.setItem("WORKOUT_COUNT_OVERRIDE", String(workoutCount));
+    await AsyncStorage.setItem("CALORIES_OVERRIDE", String(calories));
+
     // Force refresh flags
     const timestamp = Date.now().toString();
-    await AsyncStorage.setItem('dashboard_needs_refresh', timestamp);
-    await AsyncStorage.setItem('FORCE_REFRESH_HOME', timestamp);
+    await AsyncStorage.setItem("dashboard_needs_refresh", timestamp);
+    await AsyncStorage.setItem("FORCE_REFRESH_HOME", timestamp);
     await AsyncStorage.setItem(`workout_completed_${userId}`, timestamp);
-    
-    console.log('🚨 EMERGENCY FIX COMPLETE');
+
+    console.log("🚨 EMERGENCY FIX COMPLETE");
     return true;
   } catch (error) {
-    console.error('Error in emergency workout progress update:', error);
+    console.error("Error in emergency workout progress update:", error);
     return false;
   }
 };
@@ -57,16 +70,16 @@ export const forceWorkoutProgressUpdate = async (
 export const resetEmergencyFlags = async () => {
   try {
     const keys = [
-      'EMERGENCY_FIX_REQUIRED',
-      'WORKOUT_COUNT_OVERRIDE',
-      'CALORIES_OVERRIDE'
+      "EMERGENCY_FIX_REQUIRED",
+      "WORKOUT_COUNT_OVERRIDE",
+      "CALORIES_OVERRIDE",
     ];
-    
+
     await AsyncStorage.multiRemove(keys);
-    console.log('Reset all emergency flags');
+    console.log("Reset all emergency flags");
     return true;
   } catch (error) {
-    console.error('Error resetting emergency flags:', error);
+    console.error("Error resetting emergency flags:", error);
     return false;
   }
-}; 
+};
