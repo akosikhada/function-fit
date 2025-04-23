@@ -28,7 +28,7 @@
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="functionfit"/>
-        <data android:scheme="com.syvexa.testtempo"/>
+        <data android:scheme="com.syvexa.functionfit"/>
       </intent-filter>
       <intent-filter data-generated="true">
         <action android:name="android.intent.action.VIEW"/>
