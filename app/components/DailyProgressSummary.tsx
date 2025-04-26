@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { View, Text, useColorScheme } from "react-native";
-import { Footprints, Flame, Clock } from "lucide-react-native";
+import { Timer, Flame, Clock } from "lucide-react-native";
 import ThemeModule from "../utils/theme";
 
 interface DailyProgressSummaryProps {
@@ -88,6 +88,15 @@ const DailyProgressSummary = ({
 		return workoutValue;
 	};
 
+	// Format time value from steps
+	const formatTimeValue = () => {
+		// Convert steps to minutes (approximately)
+		// Using a simple formula: 1000 steps = 10 minutes
+		const numericSteps = parseInt(stepsValue.replace(/,/g, ''), 10) || 0;
+		const timeInMinutes = Math.round(numericSteps / 100);
+		return `${timeInMinutes}m`;
+	};
+
 	return (
 		<View
 			style={{
@@ -103,23 +112,23 @@ const DailyProgressSummary = ({
 				<View className="items-center">
 					<View
 						style={{
-							backgroundColor: isDarkMode ? "#312E81" : "#E0E7FF",
+							backgroundColor: isDarkMode ? "#0F766E" : "#CCFBF1",
 						}}
 						className="w-12 h-12 rounded-full items-center justify-center mb-2"
 					>
-						<Footprints size={22} color={isDarkMode ? "#818CF8" : "#4F46E5"} />
+						<Timer size={22} color={isDarkMode ? "#2DD4BF" : "#0D9488"} />
 					</View>
 					<Text
-						style={{ color: isDarkMode ? "#818CF8" : "#4F46E5" }}
+						style={{ color: isDarkMode ? "#2DD4BF" : "#0D9488" }}
 						className="font-bold text-base"
 					>
-						{stepsValue}
+						{formatTimeValue()}
 					</Text>
 					<Text style={{ color: colors.secondaryText }} className="text-xs">
-						Steps
+						Active Time
 					</Text>
 					<Text style={{ color: colors.secondaryText }} className="text-xs">
-						Goal: 10,000
+						Goal: 120m
 					</Text>
 				</View>
 

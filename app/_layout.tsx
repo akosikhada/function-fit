@@ -202,6 +202,27 @@ export default function RootLayout() {
 						name="settings/index"
 						options={{ headerShown: false }}
 					/>
+					{/* Settings sub-screens */}
+					<Stack.Screen
+						name="settings/profile"
+						options={{ headerShown: true }}
+					/>
+					<Stack.Screen
+						name="settings/privacy"
+						options={{ headerShown: true }}
+					/>
+					<Stack.Screen
+						name="settings/notifications"
+						options={{ headerShown: true }}
+					/>
+					<Stack.Screen
+						name="settings/devices"
+						options={{ headerShown: true }}
+					/>
+					<Stack.Screen
+						name="settings/help"
+						options={{ headerShown: true }}
+					/>
 					<Stack.Screen
 						name="nutrition/index"
 						options={{ headerShown: false }}

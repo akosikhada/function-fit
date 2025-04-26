@@ -740,11 +740,13 @@ export default function PlanScreen() {
 							marginBottom: contentPadding + 8,
 							shadowColor: "#000",
 							shadowOffset: { width: 0, height: 4 },
-							shadowOpacity: isDarkMode ? 0.3 : 0.15,
-							shadowRadius: 8,
-							elevation: 5,
+							shadowOpacity: isDarkMode ? 0.25 : 0.1,
+							shadowRadius: 6,
+							elevation: 4,
+							borderRadius: 24,
+							overflow: "hidden",
 						}}
-						className="mx-4 mt-6 mb-6 rounded-3xl overflow-hidden"
+						className="mx-4 mt-6 mb-6"
 					>
 						<LinearGradient
 							colors={
@@ -762,31 +764,59 @@ export default function PlanScreen() {
 						/>
 						<View className="p-5">
 							<View className="flex-row justify-between items-center mb-4">
-								<Text
-									className="font-bold"
-									style={{
-										color: colors.text,
-										fontSize: isSmallDevice ? 15 : 17,
-									}}
-								>
-									Weekly Progress
-								</Text>
+								<View className="flex-row items-center">
+									<Flame
+										size={isSmallDevice ? 16 : 18}
+										color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+										style={{ marginRight: 8 }}
+									/>
+									<Text
+										className="font-bold"
+										style={{
+											color: colors.text,
+											fontSize: isSmallDevice ? 15 : 17,
+										}}
+									>
+										Weekly Progress
+									</Text>
+								</View>
 								<View
-									className="flex-row items-center px-3 py-1 rounded-full"
+									className="flex-row items-center px-3 py-2 rounded-full"
 									style={{
 										backgroundColor: isDarkMode
 											? "rgba(139, 92, 246, 0.15)"
 											: "rgba(99, 102, 241, 0.08)",
 									}}
 								>
+									<View style={{ 
+										width: 38, 
+										height: 38, 
+										borderRadius: 19,
+										backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.2)' : 'rgba(99, 102, 241, 0.1)',
+										position: 'absolute',
+										left: 3,
+										justifyContent: 'center',
+										alignItems: 'center' 
+									}}>
+										<Text
+											style={{
+												color: isDarkMode ? "#A78BFA" : "#4F46E5",
+												fontSize: isSmallDevice ? 12 : 14,
+												fontWeight: "700",
+											}}
+										>
+											{weeklyProgressPercent}%
+										</Text>
+									</View>
 									<Text
 										style={{
 											color: isDarkMode ? "#A78BFA" : "#4F46E5",
 											fontSize: isSmallDevice ? 12 : 14,
 											fontWeight: "600",
+											marginLeft: 45,
 										}}
 									>
-										{weeklyProgressPercent}% Complete
+										Complete
 									</Text>
 								</View>
 							</View>
@@ -806,6 +836,7 @@ export default function PlanScreen() {
 														color: colors.secondaryText,
 														fontSize: 12,
 														marginBottom: 6,
+														fontWeight: "600",
 													}}
 												>
 													{dayProgress.day}
@@ -822,11 +853,15 @@ export default function PlanScreen() {
 													}}
 												>
 													{dayProgress.value > 0 && (
-														<View
+														<LinearGradient
+															colors={
+																isDarkMode ? ["#8B5CF6", "#6D28D9"] : ["#818CF8", "#4F46E5"]
+															}
+															start={{ x: 0, y: 0 }}
+															end={{ x: 0, y: 1 }}
 															style={{
 																width: "100%",
 																height: `${height}%`,
-																backgroundColor: isDarkMode ? "#8B5CF6" : "#6366F1",
 																borderTopLeftRadius: 12,
 																borderTopRightRadius: 12,
 															}}
@@ -835,18 +870,27 @@ export default function PlanScreen() {
 												</View>
 											</View>
 											
-											<Text
-												style={{
-													color: isDarkMode 
-														? dayProgress.value > 0 ? "#C4B5FD" : colors.secondaryText
-														: dayProgress.value > 0 ? "#4F46E5" : colors.secondaryText,
-													fontSize: 12,
-													fontWeight: dayProgress.value > 0 ? "600" : "400",
-													marginTop: 4,
-												}}
-											>
-												{dayProgress.value}/{dayProgress.target}
-											</Text>
+											<View style={{
+												flexDirection: 'row',
+												backgroundColor: dayProgress.value > 0 ? 
+													(isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)') : 
+													'transparent',
+												paddingHorizontal: 6,
+												paddingVertical: 3,
+												borderRadius: 10,
+											}}>
+												<Text
+													style={{
+														color: isDarkMode 
+															? dayProgress.value > 0 ? "#C4B5FD" : colors.secondaryText
+															: dayProgress.value > 0 ? "#4F46E5" : colors.secondaryText,
+														fontSize: 12,
+														fontWeight: dayProgress.value > 0 ? "600" : "400",
+													}}
+												>
+													{dayProgress.value}/{dayProgress.target}
+												</Text>
+											</View>
 										</View>
 									);
 								})}
@@ -860,6 +904,14 @@ export default function PlanScreen() {
 							opacity: fadeAnim,
 							transform: [{ translateY: slideAnim }],
 							marginHorizontal: contentPadding,
+							backgroundColor: colors.card,
+							borderRadius: 24,
+							padding: 16,
+							shadowColor: "#000",
+							shadowOffset: { width: 0, height: 4 },
+							shadowOpacity: isDarkMode ? 0.25 : 0.1,
+							shadowRadius: 6,
+							elevation: 4,
 						}}
 						className="mb-8"
 					>
@@ -913,7 +965,8 @@ export default function PlanScreen() {
 							horizontal
 							showsHorizontalScrollIndicator={false}
 							contentContainerStyle={{
-								paddingVertical: 4,
+								paddingVertical: 8,
+								paddingHorizontal: 2,
 							}}
 							className="mb-2"
 						>
@@ -933,7 +986,7 @@ export default function PlanScreen() {
 										}}
 									>
 										<View
-											className="w-12 h-12 rounded-full items-center justify-center mb-1"
+											className="w-12 h-12 rounded-full items-center justify-center mb-2"
 											style={{
 												backgroundColor: isSelected
 													? isDarkMode
@@ -983,17 +1036,20 @@ export default function PlanScreen() {
 										</View>
 										<Text
 											style={{
-												color: colors.secondaryText,
+												color: isSelected
+													? isDarkMode ? "#C4B5FD" : "#4F46E5"
+													: colors.secondaryText,
 												fontSize: isSmallDevice ? 10 : 12,
+												fontWeight: isSelected ? "600" : "400",
 											}}
 										>
 											{date.day}
 										</Text>
 										{hasWorkout && (
 											<View
-												className="mt-1 h-1 rounded-full"
+												className="mt-1 h-1.5 rounded-full"
 												style={{
-													width: isSmallDevice ? 12 : 16,
+													width: isSmallDevice ? 14 : 18,
 													backgroundColor: isSelected
 														? isDarkMode
 															? "#8B5CF6"
@@ -1020,22 +1076,42 @@ export default function PlanScreen() {
 					>
 						<View className="flex-row justify-between items-center mb-5">
 							<View className="flex-row items-center">
-								<Dumbbell
-									size={isSmallDevice ? 16 : 18}
-									color={isDarkMode ? "#8B5CF6" : "#6366F1"}
-									style={{ marginRight: 8 }}
-								/>
-								<Text
-									className="font-bold"
+								<View
 									style={{
-										color: colors.text,
-										fontSize: isSmallDevice ? 15 : 17,
+										backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+										borderRadius: 10,
+										padding: 8,
+										marginRight: 10
 									}}
 								>
-									{selectedDayWorkouts.length > 0
-										? "Today's Workouts"
-										: "No Workouts Scheduled"}
-								</Text>
+									<Dumbbell
+										size={isSmallDevice ? 16 : 18}
+										color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+									/>
+								</View>
+								<View>
+									<Text
+										className="font-bold"
+										style={{
+											color: colors.text,
+											fontSize: isSmallDevice ? 15 : 17,
+										}}
+									>
+										{selectedDayWorkouts.length > 0
+											? "Today's Workouts"
+											: "Rest Day"}
+									</Text>
+									<Text
+										style={{
+											color: colors.secondaryText,
+											fontSize: isSmallDevice ? 11 : 13,
+										}}
+									>
+										{selectedDayWorkouts.length > 0
+											? `${selectedDayWorkouts.length} workout${selectedDayWorkouts.length > 1 ? 's' : ''} scheduled`
+											: "No workouts scheduled"}
+									</Text>
+								</View>
 							</View>
 							<TouchableOpacity
 								className="flex-row items-center"
@@ -1075,14 +1151,17 @@ export default function PlanScreen() {
 							selectedDayWorkouts.map((workout, index) => (
 								<TouchableOpacity
 									key={index}
-									className="mb-5 rounded-3xl overflow-hidden"
+									className="mb-5 overflow-hidden"
 									style={{
 										backgroundColor: colors.card,
 										shadowColor: "#000",
-										shadowOffset: { width: 0, height: 3 },
-										shadowOpacity: isDarkMode ? 0.25 : 0.12,
-										shadowRadius: 5,
-										elevation: 4,
+											shadowOffset: { width: 0, height: 3 },
+											shadowOpacity: isDarkMode ? 0.25 : 0.12,
+											shadowRadius: 5,
+											elevation: 4,
+											borderRadius: 24,
+											borderWidth: 1,
+											borderColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
 									}}
 									onPress={() => router.push(`/workout/${workout.id}` as any)}
 								>
@@ -1104,6 +1183,9 @@ export default function PlanScreen() {
 												style={{
 													width: "35%",
 													position: "relative",
+													borderTopLeftRadius: 24,
+													borderBottomLeftRadius: 24,
+													overflow: "hidden",
 												}}
 											>
 												<Image
@@ -1146,7 +1228,7 @@ export default function PlanScreen() {
 											<View
 												className="flex-1 justify-between"
 												style={{
-													padding: isSmallDevice ? 10 : 12,
+													padding: isSmallDevice ? 12 : 14,
 												}}
 											>
 												<View>
@@ -1190,15 +1272,24 @@ export default function PlanScreen() {
 																{workout.intensity}
 															</Text>
 														</View>
-														<Text
-															style={{
-																color: isDarkMode ? "#C4B5FD" : "#6366F1",
-																fontSize: isSmallDevice ? 11 : 13,
-																fontWeight: "500",
-															}}
-														>
-															{workout.time}
-														</Text>
+														<View className="flex-row items-center bg-opacity-10 px-2 py-1 rounded-md" style={{
+															backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)'
+														}}>
+															<Clock
+																size={isSmallDevice ? 10 : 12}
+																color={isDarkMode ? "#C4B5FD" : "#6366F1"}
+																style={{ marginRight: 3 }}
+															/>
+															<Text
+																style={{
+																	color: isDarkMode ? "#C4B5FD" : "#6366F1",
+																	fontSize: isSmallDevice ? 10 : 12,
+																	fontWeight: "500",
+																}}
+															>
+																{workout.time}
+															</Text>
+														</View>
 													</View>
 
 													<Text
@@ -1247,7 +1338,7 @@ export default function PlanScreen() {
 													</View>
 												</View>
 
-												<View className="flex-row justify-between items-center">
+												<View className="flex-row justify-between items-center mt-1">
 													<TouchableOpacity
 														className="flex-row items-center"
 														style={{
@@ -1258,7 +1349,10 @@ export default function PlanScreen() {
 															paddingVertical: 6,
 															borderRadius: 12,
 														}}
-														onPress={() => router.push(`/workout-player/${workout.id}` as any)}
+														onPress={(e) => {
+															e.stopPropagation();
+															router.push(`/workout-player/${workout.id}` as any);
+														}}
 													>
 														<Text
 															style={{
@@ -1271,10 +1365,20 @@ export default function PlanScreen() {
 														</Text>
 													</TouchableOpacity>
 
-													<TouchableOpacity onPress={(e) => {
-														e.stopPropagation();
-														handleOpenMenu(workout, workout.planId);
-													}}>
+													<TouchableOpacity 
+														style={{
+															width: 32,
+															height: 32,
+															borderRadius: 16,
+															justifyContent: 'center',
+															alignItems: 'center',
+															backgroundColor: isDarkMode ? 'rgba(55, 65, 81, 0.5)' : 'rgba(243, 244, 246, 0.8)',
+														}}
+														onPress={(e) => {
+															e.stopPropagation();
+															handleOpenMenu(workout, workout.planId);
+														}}
+													>
 														<MoreVertical
 															size={isSmallDevice ? 14 : 16}
 															color={colors.secondaryText}
@@ -1391,8 +1495,25 @@ export default function PlanScreen() {
 									shadowOpacity: isDarkMode ? 0.25 : 0.12,
 									shadowRadius: 5,
 									elevation: 4,
+									borderRadius: 24,
+									borderWidth: 1,
+									borderColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
 								}}
 							>
+								<LinearGradient
+									colors={isDarkMode ? ["rgba(139, 92, 246, 0.1)", "rgba(79, 70, 229, 0.05)"] : ["rgba(224, 231, 255, 0.6)", "rgba(239, 246, 255, 0.3)"]}
+									start={{ x: 0, y: 0 }}
+									end={{ x: 1, y: 1 }}
+									style={{
+										position: "absolute",
+										top: 0,
+										left: 0,
+										right: 0,
+										bottom: 0,
+										borderRadius: 24,
+									}}
+								/>
+								
 								<View
 									className="w-20 h-20 rounded-full items-center justify-center mb-6"
 									style={{
@@ -1415,7 +1536,7 @@ export default function PlanScreen() {
 									className="font-bold mb-3 text-center"
 									style={{
 										color: colors.text,
-										fontSize: 18,
+										fontSize: 20,
 									}}
 								>
 									Rest Day
@@ -1424,13 +1545,12 @@ export default function PlanScreen() {
 									className="text-center mb-6"
 									style={{
 										color: colors.secondaryText,
-										fontSize: 14,
-										lineHeight: 20,
-										maxWidth: 270,
+										fontSize: 15,
+										lineHeight: 22,
+										maxWidth: 300,
 									}}
 								>
-									No workouts scheduled for this day. Take a rest or add a
-									workout to your plan.
+									Recovery is just as important as training. Take time to rest or add a workout to your plan.
 								</Text>
 								<TouchableOpacity
 									className="rounded-xl px-6 py-3 items-center"
@@ -1483,10 +1603,10 @@ export default function PlanScreen() {
 					<Animated.View
 						style={{
 							backgroundColor: colors.card,
-							borderRadius: 24,
+							borderRadius: 28,
 							width: '80%',
-							maxWidth: 300,
-							padding: 24,
+							maxWidth: 320,
+							padding: 28,
 							alignItems: 'center',
 							shadowColor: "#000",
 							shadowOffset: { width: 0, height: 10 },
@@ -1495,17 +1615,21 @@ export default function PlanScreen() {
 							elevation: 8,
 							transform: [{ scale: successScaleAnim }],
 							opacity: successOpacityAnim,
+							borderWidth: 1,
+							borderColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
 						}}
 					>
 						<View
 							style={{
-								width: 80,
-								height: 80,
-								borderRadius: 40,
+								width: 90,
+								height: 90,
+								borderRadius: 45,
 								backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
 								justifyContent: 'center',
 								alignItems: 'center',
-								marginBottom: 20,
+								marginBottom: 24,
+								borderWidth: 1,
+								borderColor: isDarkMode ? 'rgba(139, 92, 246, 0.3)' : 'rgba(99, 102, 241, 0.2)',
 							}}
 						>
 							<Animated.View
@@ -1514,7 +1638,7 @@ export default function PlanScreen() {
 								}}
 							>
 								<CheckCircle
-									size={48}
+									size={56}
 									color={isDarkMode ? '#A78BFA' : '#6366F1'}
 									fill={isDarkMode ? 'rgba(139, 92, 246, 0.3)' : 'rgba(99, 102, 241, 0.2)'}
 									strokeWidth={1.5}
@@ -1524,10 +1648,10 @@ export default function PlanScreen() {
 						
 						<Text
 							style={{
-								fontSize: 20,
+								fontSize: 22,
 								fontWeight: '700',
 								color: colors.text,
-								marginBottom: 8,
+								marginBottom: 10,
 								textAlign: 'center',
 							}}
 						>
@@ -1536,11 +1660,11 @@ export default function PlanScreen() {
 						
 						<Text
 							style={{
-								fontSize: 15,
+								fontSize: 16,
 								color: colors.secondaryText,
 								textAlign: 'center',
-								marginBottom: 20,
-								lineHeight: 20,
+								marginBottom: 28,
+								lineHeight: 22,
 							}}
 						>
 							"{deletedWorkoutTitle}" has been removed from your workout plan.
@@ -1548,10 +1672,10 @@ export default function PlanScreen() {
 						
 						<TouchableOpacity
 							style={{
-								paddingVertical: 12,
+								paddingVertical: 14,
 								paddingHorizontal: 24,
 								backgroundColor: isDarkMode ? '#7C3AED' : '#6366F1',
-								borderRadius: 12,
+								borderRadius: 16,
 								width: '100%',
 								shadowColor: "#000",
 								shadowOffset: { width: 0, height: 3 },
@@ -1596,14 +1720,16 @@ export default function PlanScreen() {
 							width: "90%",
 							maxHeight: "80%",
 							backgroundColor: colors.card,
-							borderRadius: 20,
-							padding: 20,
+							borderRadius: 28,
+							padding: 24,
 							shadowColor: "#000",
-							shadowOffset: { width: 0, height: 2 },
-							shadowOpacity: 0.25,
-							shadowRadius: 4,
-							elevation: 5,
+							shadowOffset: { width: 0, height: 8 },
+							shadowOpacity: 0.3,
+							shadowRadius: 12,
+							elevation: 10,
 							overflow: "hidden",
+							borderWidth: 1,
+							borderColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
 						}}
 					>
 						<ScrollView
@@ -1627,30 +1753,37 @@ export default function PlanScreen() {
 										<View className="flex-row items-center">
 											<TouchableOpacity
 												onPress={() => setShowYearSelector(!showYearSelector)}
+												style={{
+													flexDirection: 'row',
+													alignItems: 'center',
+													paddingVertical: 4,
+													paddingHorizontal: 8,
+													backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.1)' : 'rgba(99, 102, 241, 0.05)',
+													borderRadius: 8
+												}}
 											>
 												<Text
 													style={{
-														color: colors.secondaryText,
+														color: isDarkMode ? "#A78BFA" : "#6366F1",
 														fontSize: 16,
 														fontWeight: "600",
-														textDecorationLine: "underline",
 													}}
 												>
 													{selectedCalendarDate.getFullYear()}
 												</Text>
+												<ChevronRight
+													size={14}
+													color={isDarkMode ? "#A78BFA" : "#6366F1"}
+													style={{ marginLeft: 3, marginTop: 1 }}
+												/>
 											</TouchableOpacity>
-											<ChevronRight
-												size={12}
-												color={colors.secondaryText}
-												style={{ marginLeft: 3, marginTop: 2 }}
-											/>
 										</View>
 										<Text
 											style={{
 												color: colors.text,
-												fontSize: 20,
+												fontSize: 24,
 												fontWeight: "700",
-												marginTop: 4,
+												marginTop: 6,
 											}}
 										>
 											{formatDisplayDate(selectedCalendarDate)}
@@ -1658,18 +1791,24 @@ export default function PlanScreen() {
 									</View>
 
 									{/* Time display */}
-									<Text
-										style={{
-											color: colors.secondaryText,
-											fontSize: 16,
-											fontWeight: "500",
-										}}
-									>
-										{new Date().toLocaleTimeString([], {
-											hour: "2-digit",
-											minute: "2-digit",
-										})}
-									</Text>
+									<View style={{
+										padding: 8,
+										backgroundColor: isDarkMode ? 'rgba(55, 65, 81, 0.3)' : 'rgba(243, 244, 246, 0.8)',
+										borderRadius: 12
+									}}>
+										<Text
+											style={{
+												color: colors.secondaryText,
+												fontSize: 16,
+												fontWeight: "500",
+											}}
+										>
+											{new Date().toLocaleTimeString([], {
+												hour: "2-digit",
+												minute: "2-digit",
+											})}
+										</Text>
+									</View>
 								</View>
 							</View>
 
@@ -1799,22 +1938,22 @@ export default function PlanScreen() {
 							)}
 
 							{/* Month navigation header */}
-							<View className="flex-row justify-between items-center mb-6">
+							<View className="flex-row justify-between items-center mb-8">
 								<TouchableOpacity
 									onPress={() => navigateMonth(-1)}
 									style={{
-										width: 36,
-										height: 36,
+										width: 42,
+										height: 42,
 										alignItems: "center",
 										justifyContent: "center",
-										borderRadius: 18,
+										borderRadius: 21,
 										backgroundColor: isDarkMode
 											? "rgba(139, 92, 246, 0.15)"
 											: "rgba(99, 102, 241, 0.08)",
 									}}
 								>
 									<ChevronLeft
-										size={18}
+										size={20}
 										color={isDarkMode ? "#8B5CF6" : "#6366F1"}
 										strokeWidth={2.5}
 									/>
@@ -1827,7 +1966,7 @@ export default function PlanScreen() {
 									<Text
 										style={{
 											color: colors.text,
-											fontSize: 18,
+											fontSize: 20,
 											fontWeight: "700",
 											textAlign: "center",
 										}}
@@ -1836,14 +1975,19 @@ export default function PlanScreen() {
 									</Text>
 									<TouchableOpacity
 										onPress={() => setShowYearSelector(!showYearSelector)}
-										style={{ marginLeft: 5 }}
+										style={{ 
+											marginLeft: 8,
+											backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+											paddingHorizontal: 8,
+											paddingVertical: 4,
+											borderRadius: 8
+										}}
 									>
 										<Text
 											style={{
 												color: isDarkMode ? "#A78BFA" : "#6366F1",
 												fontSize: 18,
 												fontWeight: "700",
-												textDecorationLine: "underline",
 											}}
 										>
 											{calendarMonth.getFullYear()}
@@ -1854,18 +1998,18 @@ export default function PlanScreen() {
 								<TouchableOpacity
 									onPress={() => navigateMonth(1)}
 									style={{
-										width: 36,
-										height: 36,
+										width: 42,
+										height: 42,
 										alignItems: "center",
 										justifyContent: "center",
-										borderRadius: 18,
+										borderRadius: 21,
 										backgroundColor: isDarkMode
 											? "rgba(139, 92, 246, 0.15)"
 											: "rgba(99, 102, 241, 0.08)",
 									}}
 								>
 									<ChevronRight
-										size={18}
+										size={20}
 										color={isDarkMode ? "#8B5CF6" : "#6366F1"}
 										strokeWidth={2.5}
 									/>
@@ -1882,7 +2026,7 @@ export default function PlanScreen() {
 												color: colors.secondaryText,
 												width: "14.28%",
 												textAlign: "center",
-												fontSize: 10,
+												fontSize: 12,
 												fontWeight: "600",
 											}}
 										>
@@ -1929,23 +2073,24 @@ export default function PlanScreen() {
 											key={index}
 											style={{
 												width: "14.28%",
-												height: 46,
+												height: 50,
 												padding: 2,
 												alignItems: "center",
 												justifyContent: "center",
+												borderRadius: 20,
 											}}
 										>
 											{day ? (
 												<TouchableOpacity
 													className="items-center justify-center"
 													style={{
-														width: 36,
-														height: 36,
-														borderRadius: 36,
+														width: 40,
+														height: 40,
+														borderRadius: 20,
 														backgroundColor: isSelected
 															? isDarkMode
-																? "#6D28D9"
-																: "#4F46E5"
+																? "#7C3AED"
+																: "#6366F1"
 															: isToday
 															? isDarkMode
 																? "rgba(139, 92, 246, 0.2)"
@@ -1964,14 +2109,14 @@ export default function PlanScreen() {
 																	: "#4F46E5"
 																: colors.text,
 															fontWeight: isSelected || isToday ? "600" : "400",
-															fontSize: 15,
+															fontSize: 16,
 														}}
 													>
-														{day < 10 ? `0${day}` : day}
+														{day}
 													</Text>
 													{hasWorkout && !isSelected && (
 														<View
-															className="h-1 w-1 rounded-full mt-1"
+															className="h-1.5 w-1.5 rounded-full mt-1"
 															style={{
 																backgroundColor: isDarkMode
 																	? "#8B5CF6"
@@ -1981,7 +2126,7 @@ export default function PlanScreen() {
 													)}
 												</TouchableOpacity>
 											) : (
-												<View style={{ width: 36, height: 36 }} />
+												<View style={{ width: 40, height: 40 }} />
 											)}
 										</View>
 									);
@@ -1991,9 +2136,14 @@ export default function PlanScreen() {
 
 						{/* Action button */}
 						<TouchableOpacity
-							className="py-3 rounded-lg items-center mt-3"
+							className="py-4 rounded-xl items-center mt-4"
 							style={{
 								backgroundColor: isDarkMode ? "#7C3AED" : "#6366F1",
+								shadowColor: "#000",
+								shadowOffset: { width: 0, height: 3 },
+								shadowOpacity: 0.2,
+								shadowRadius: 5,
+								elevation: 3,
 							}}
 							onPress={() => setShowCalendarModal(false)}
 						>

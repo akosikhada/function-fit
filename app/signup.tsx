@@ -18,7 +18,7 @@ import Toast from "./components/Toast";
 import { Check, Eye, EyeOff, User, Mail, Lock } from "lucide-react-native";
 
 export default function SignUpScreen() {
-	const [fullName, setFullName] = useState("");
+	const [userName, setUserName] = useState("");
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [confirmPassword, setConfirmPassword] = useState("");
@@ -28,6 +28,8 @@ export default function SignUpScreen() {
 	const [loading, setLoading] = useState(false);
 	const [errorMessage, setErrorMessage] = useState("");
 	const [showError, setShowError] = useState(false);
+	const [successMessage, setSuccessMessage] = useState("");
+	const [showSuccess, setShowSuccess] = useState(false);
 
 	// Handle hardware back button
 	useEffect(() => {
@@ -72,15 +74,20 @@ export default function SignUpScreen() {
 		setShowError(true);
 	};
 
+	const showSuccessToast = (message: string) => {
+		setSuccessMessage(message);
+		setShowSuccess(true);
+	};
+
 	const handleSignUp = async () => {
 		// Input validation
-		if (!fullName || !email || !password || !confirmPassword) {
+		if (!userName || !email || !password || !confirmPassword) {
 			showErrorToast("Please fill in all fields");
 			return;
 		}
 
-		if (fullName.length < 3) {
-			showErrorToast("Full name must be at least 3 characters long");
+		if (userName.length < 3) {
+			showErrorToast("Username must be at least 3 characters long");
 			return;
 		}
 
@@ -113,25 +120,22 @@ export default function SignUpScreen() {
 			if (result.success) {
 				// Handle email confirmation if needed
 				if (result.needsEmailConfirmation) {
-					Alert.alert(
-						"Account Created",
-						result.message ||
-							"Account created successfully! Please check your email to verify your account.",
-						[
-							{
-								text: "OK",
-								onPress: () => router.replace("/signin"),
-							},
-						]
+					// Show success toast instead of Alert
+					showSuccessToast(
+						result.message || 
+						"Please check your email to verify your account before signing in."
 					);
+					
+					// Navigate to sign in after a short delay
+					setTimeout(() => {
+						router.replace("/signin");
+					}, 3000);
 				} else {
 					// Automatic sign-in worked
-					Alert.alert("Success", "Account created successfully!", [
-						{
-							text: "OK",
-							onPress: () => router.replace("/"),
-						},
-					]);
+					showSuccessToast("Account created successfully!");
+					setTimeout(() => {
+						router.replace("/");
+					}, 1500);
 				}
 			}
 		} catch (error: any) {
@@ -191,16 +195,16 @@ export default function SignUpScreen() {
 
 					<View className="space-y-6">
 						<View>
-							<Text className="text-gray-600 mb-2">Full Name</Text>
+							<Text className="text-gray-600 mb-2">Username</Text>
 							<View className="relative">
 								<View className="absolute left-4 top-4 z-10">
 									<User size={20} color="#6B7280" />
 								</View>
 								<TextInput
 									className="bg-gray-50 p-4 pl-12 rounded-lg text-gray-800"
-									placeholder="Enter your full name"
-									value={fullName}
-									onChangeText={setFullName}
+									placeholder="Enter your username"
+									value={userName}
+									onChangeText={setUserName}
 								/>
 							</View>
 						</View>
@@ -326,11 +330,22 @@ export default function SignUpScreen() {
 				</View>
 			</View>
 
+			{/* Error Toast */}
 			<Toast
 				message={errorMessage}
 				type="error"
 				visible={showError}
 				onDismiss={() => setShowError(false)}
+				duration={5000}
+			/>
+			
+			{/* Success Toast */}
+			<Toast
+				message={successMessage}
+				type="success"
+				visible={showSuccess}
+				onDismiss={() => setShowSuccess(false)}
+				duration={5000}
 			/>
 		</SafeAreaView>
 	);

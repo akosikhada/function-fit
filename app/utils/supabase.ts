@@ -75,6 +75,7 @@ export const getUserProfile = async (userId: string) => {
           email: email,
           username: email?.split("@")[0] || `test_user_${userId.slice(-3)}`,
           avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`,
+          preferred_time: "6:00 PM", // Default preferred time
         })
         .select()
         .single();
@@ -734,7 +735,7 @@ export const updateUserProfile = async (
 ) => {
   try {
     // Extract fields that go to the users table in Supabase
-    const { username, avatar_url } = updateData;
+    const { username, avatar_url, birthday, gender, height, weight } = updateData;
 
     // For local file URIs (from image picker), use a default avatar with a fixed seed
     // so it stays consistent for the user even after logging in again
@@ -748,12 +749,16 @@ export const updateUserProfile = async (
       )}`;
     }
 
-    // Update the users table - removed height and weight fields since they don't exist in the table
+    // Update the users table - include birthday, gender, height and weight fields
     const { data, error } = await supabase
       .from("users")
       .update({
         username: username,
         avatar_url: finalAvatarUrl,
+        birthday: birthday,
+        gender: gender,
+        height: height,
+        weight: weight,
         updated_at: new Date().toISOString(),
       })
       .eq("id", userId)

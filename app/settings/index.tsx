@@ -62,6 +62,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import ThemeModule from "../utils/theme";
 import { supabase } from "../utils/supabase";
 import { useFocusEffect } from "@react-navigation/native";
+import CustomDateTimePicker from "../components/DateTimePicker";
 const { useTheme } = ThemeModule;
 
 interface UserProfile {
@@ -800,22 +801,93 @@ export default function SettingsScreen() {
   };
 
   const handleSaveProfile = async () => {
-    // Implementation for saving profile
     setIsLoading(true);
     try {
-      // Logic to save profile would go here
-      setEditModalVisible(false);
-      // Update the user profile with edited data
-      setUserProfile({
+      const user = await getUser();
+      if (!user) {
+        showErrorToast("User not found");
+        setIsLoading(false);
+        return;
+      }
+
+      let finalAvatarUrl = editedProfile.avatarUrl;
+
+      // Check if we have a new image to upload
+      if (editedProfile.avatarUrl && editedProfile.avatarUrl !== userProfile.avatarUrl && 
+          editedProfile.avatarUrl.startsWith('file:')) {
+        try {
+          // Upload the image to Supabase storage
+          const imageUrl = await uploadImageToSupabase(
+            editedProfile.avatarUrl,
+            'profile-images', // bucket name
+            'avatars',        // folder
+            user.id           // userId
+          );
+          
+          // Use the URL from Supabase storage
+          finalAvatarUrl = imageUrl;
+          
+          // Clean up old profile images if needed
+          await deleteOldProfileImages(
+            'profile-images', // bucket name
+            user.id           // userId
+          );
+          
+          console.log("Image uploaded successfully:", finalAvatarUrl);
+        } catch (uploadError) {
+          console.error("Error uploading image:", uploadError);
+          // Continue with profile update even if image upload fails
+        }
+      }
+
+      // Make sure finalAvatarUrl is never undefined
+      if (!finalAvatarUrl) {
+        finalAvatarUrl = userProfile.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`;
+      }
+      
+      // Prepare profile data for database update
+      const profileData = {
+        username: editedProfile.username,
+        full_name: editedProfile.fullName || "",
+        avatar_url: finalAvatarUrl,
+        email: editedProfile.email,
+        gender: editedProfile.gender || "",
+        height: editedProfile.height || "",
+        weight: editedProfile.weight || "",
+        updated_at: new Date().toISOString()
+      };
+
+      // Update profile in the database
+      const result = await updateUserProfile(user.id, profileData);
+      
+      if (!result.success) {
+        console.error("Error updating profile in database:", result.data);
+        throw new Error("Failed to update profile");
+      }
+
+      // Update the user profile state with edited data
+      const updatedProfile: UserProfile = {
         ...userProfile,
         ...editedProfile,
-        height: `${editedProfile.height?.replace(" cm", "")} cm`,
-        weight: `${editedProfile.weight?.replace(" kg", "")} kg`,
-      });
+        avatarUrl: finalAvatarUrl
+      };
+      
+      // Update state immediately for a responsive UI
+      setUserProfile(updatedProfile);
+      
+      // Save updated profile to local storage
+      await AsyncStorage.setItem(
+        `userProfile-${user.id}`,
+        JSON.stringify(updatedProfile)
+      );
+      
+      setEditModalVisible(false);
+      setIsLoading(false);
+      
+      showErrorToast("Profile updated successfully!");
     } catch (error) {
       console.error("Error saving profile:", error);
       showErrorToast("Failed to save profile");
-    } finally {
       setIsLoading(false);
     }
   };
@@ -832,6 +904,7 @@ export default function SettingsScreen() {
         return;
       }
 
+      setUploadingImage(true);
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
@@ -841,16 +914,20 @@ export default function SettingsScreen() {
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const selectedAsset = result.assets[0];
-        setUploadingImage(true);
-
-        // Update the profile with the new image URI
-        setEditedProfile({
+        
+        // Update the editedProfile with the new image
+        const updatedProfile = {
           ...editedProfile,
           avatarUrl: selectedAsset.uri,
-        });
-
-        setUploadingImage(false);
+        };
+        
+        setEditedProfile(updatedProfile);
+        
+        // Also save this to AsyncStorage so it persists
+        saveEditProgress(updatedProfile);
       }
+      
+      setUploadingImage(false);
     } catch (error) {
       console.error("Error changing photo:", error);
       showErrorToast("Failed to update profile photo");
@@ -878,9 +955,28 @@ export default function SettingsScreen() {
   };
 
   const handleSettingsNavigation = (screen: string) => {
-    // Navigate to different settings screens
-    Alert.alert("Navigation", `Navigate to ${screen}`);
-    // This would typically use router.push to a specific route
+    // Navigate to different settings screens based on the selected option
+    switch (screen) {
+      case "Account Settings":
+        router.push("/settings/profile");
+        break;
+      case "Privacy Settings":
+        router.push("/settings/privacy");
+        break;
+      case "Notification Preferences":
+        router.push("/settings/notifications");
+        break;
+      case "Connected Devices":
+        router.push("/settings/devices");
+        break;
+      case "Help & Support":
+        router.push("/settings/help");
+        break;
+      default:
+        // For any other screens, show an alert indicating they're not implemented yet
+        Alert.alert("Coming Soon", `The ${screen} screen will be available in a future update.`);
+        break;
+    }
   };
 
   const handleLogout = async () => {
@@ -1111,6 +1207,25 @@ export default function SettingsScreen() {
     }, [userProfile.userId])
   );
 
+  // Helper functions for date formatting
+  const formatDateToBirthdayString = (date: Date): string => {
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const day = date.getDate().toString().padStart(2, '0');
+    const year = date.getFullYear();
+    return `${month}/${day}/${year}`;
+  };
+
+  const formatBirthdayStringToDate = (birthdayString: string): Date => {
+    try {
+      const [month, day, year] = birthdayString.split('/').map(part => parseInt(part));
+      const date = new Date(year, month - 1, day);
+      return isNaN(date.getTime()) ? new Date() : date;
+    } catch (e) {
+      console.error('Error parsing birthday string:', e);
+      return new Date();
+    }
+  };
+
   return (
     <SafeAreaView
       style={{ backgroundColor: colors.background }}
@@ -1127,44 +1242,73 @@ export default function SettingsScreen() {
           paddingHorizontal: isSmallDevice ? 12 : isMediumDevice ? 16 : 24,
         }}
       >
-        {/* Profile Header */}
-        <View className="pt-16">
-          <View
-            style={{ backgroundColor: colors.card }}
-            className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm`}
-          >
-            <View className="flex-row items-center">
-              {userProfile?.avatarUrl ? (
-                <Image
-                  source={{
-                    uri: userProfile.avatarUrl,
-                  }}
-                  style={{ width: avatarSize, height: avatarSize }}
-                  className="rounded-full"
-                />
-              ) : (
-                <View
-                  style={{ width: avatarSize, height: avatarSize }}
-                  className="rounded-full bg-gray-200 items-center justify-center"
-                >
-                  <User size={isSmallDevice ? 20 : 24} color="#9CA3AF" />
-                </View>
-              )}
-              <View className={`ml-${isSmallDevice ? "2" : "3"}`}>
-                <Text
-                  style={{ color: colors.text }}
-                  className={`${
-                    isSmallDevice ? "text-sm" : "text-base"
-                  } font-medium`}
-                >
-                  {profileLoading && !userProfile?.username
-                    ? "Loading..."
-                    : userProfile?.username}
-                </Text>
-                <View style={{ marginTop: 4 }}>
+        {/* Header */}
+        <View className="pt-12 pb-4 flex-row items-center justify-between">
+          <Text style={{ color: colors.text }} className="text-2xl font-bold">
+            Settings
+          </Text>
+        </View>
+
+        {/* Profile Card */}
+        <View
+          style={{ 
+            backgroundColor: colors.card,
+            borderRadius: 20,
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: isDarkMode ? 0.3 : 0.1,
+            shadowRadius: 8,
+            elevation: 3,
+            marginBottom: 20,
+            overflow: 'hidden'
+          }}
+          className="mb-6"
+        >
+          <View style={{ 
+            backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+            paddingVertical: 16
+          }}>
+            <View className="flex-row items-center justify-between px-6">
+              <View className="flex-row items-center flex-1 pr-4">
+                {userProfile?.avatarUrl ? (
+                  <Image
+                    source={{ uri: userProfile.avatarUrl }}
+                    style={{ 
+                      width: avatarSize + 10, 
+                      height: avatarSize + 10,
+                      borderWidth: 2,
+                      borderColor: isDarkMode ? '#8B5CF6' : '#6366F1' 
+                    }}
+                    className="rounded-full"
+                  />
+                ) : (
+                  <View
+                    style={{ 
+                      width: avatarSize + 10, 
+                      height: avatarSize + 10,
+                      borderWidth: 2,
+                      borderColor: isDarkMode ? '#8B5CF6' : '#6366F1',
+                      backgroundColor: isDarkMode ? "rgba(55, 65, 81, 0.7)" : "#F3F4F6"
+                    }}
+                    className="rounded-full items-center justify-center"
+                  >
+                    <User size={32} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
+                  </View>
+                )}
+                <View className="ml-4 flex-1">
+                  <Text
+                    style={{ color: colors.text }}
+                    className="text-xl font-bold"
+                    numberOfLines={1}
+                  >
+                    {profileLoading && !userProfile?.username
+                      ? "Loading..."
+                      : userProfile?.username}
+                  </Text>
                   <Text
                     style={{ color: colors.secondaryText }}
-                    className="text-xs mt-1"
+                    className="text-sm mt-1"
+                    numberOfLines={1}
                   >
                     {isLoading && !userProfile?.email
                       ? "Loading..."
@@ -1172,326 +1316,111 @@ export default function SettingsScreen() {
                   </Text>
                   {userProfile?.pendingEmail && (
                     <View style={styles.pendingEmailBadge}>
-                      <Text style={styles.pendingEmailText}>
+                      <Text style={styles.pendingEmailText} numberOfLines={1}>
                         Verification pending for {userProfile.pendingEmail}
                       </Text>
                     </View>
                   )}
                 </View>
               </View>
-            </View>
-            <TouchableOpacity
-              onPress={handleEditProfile}
-              className="p-1.5 rounded-full"
-            >
-              <Pencil size={isSmallDevice ? 16 : 18} color="#6366F1" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Stats */}
-          <View className="mt-4">
-            <View
-              className={`flex-row justify-between ${
-                isLargeDevice ? "px-8" : ""
-              }`}
-            >
-              <View
-                className={`flex-1 items-center ${
-                  isSmallDevice ? "mr-1" : "mr-2"
-                }`}
+              <TouchableOpacity
+                onPress={handleEditProfile}
+                style={{
+                  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.6)',
+                  padding: 8,
+                  borderRadius: 10,
+                  alignSelf: 'center'
+                }}
               >
-                <View
-                  className={`${
-                    isSmallDevice ? "w-8 h-8" : "w-10 h-10"
-                  } bg-purple-100 rounded-full items-center justify-center mb-2`}
-                >
-                  <Activity size={isSmallDevice ? 16 : 18} color="#8B5CF6" />
-                </View>
-                <Text
-                  style={{ color: colors.text }}
-                  className={`${
-                    isSmallDevice ? "text-lg" : "text-xl"
-                  } font-bold`}
-                >
-                  {userProfile?.stats.totalWorkouts || 0}
-                </Text>
-                <Text
-                  style={{ color: colors.secondaryText }}
-                  className="text-xs mt-1"
-                >
-                  Workouts
-                </Text>
-              </View>
-              <View
-                className={`flex-1 items-center ${
-                  isSmallDevice ? "mx-1" : "mx-2"
-                }`}
-              >
-                <View
-                  className={`${
-                    isSmallDevice ? "w-8 h-8" : "w-10 h-10"
-                  } bg-blue-100 rounded-full items-center justify-center mb-2`}
-                >
-                  <Clock size={isSmallDevice ? 16 : 18} color="#3B82F6" />
-                </View>
-                <Text
-                  style={{ color: colors.text }}
-                  className={`${
-                    isSmallDevice ? "text-lg" : "text-xl"
-                  } font-bold`}
-                >
-                  {userProfile?.stats.totalHours || 0}h
-                </Text>
-                <Text
-                  style={{ color: colors.secondaryText }}
-                  className="text-xs mt-1"
-                >
-                  Hours
-                </Text>
-              </View>
-              <View
-                className={`flex-1 items-center ${
-                  isSmallDevice ? "ml-1" : "ml-2"
-                }`}
-              >
-                <View
-                  className={`${
-                    isSmallDevice ? "w-8 h-8" : "w-10 h-10"
-                  } bg-orange-100 rounded-full items-center justify-center mb-2`}
-                >
-                  <Flame size={isSmallDevice ? 16 : 18} color="#F97316" />
-                </View>
-                <Text
-                  style={{ color: colors.text }}
-                  className={`${
-                    isSmallDevice ? "text-lg" : "text-xl"
-                  } font-bold`}
-                >
-                  {userProfile?.stats.totalCalories
-                    ? ((userProfile.stats.totalCalories || 0) / 1000).toFixed(
-                        1
-                      ) + "k"
-                    : "0"}
-                </Text>
-                <Text
-                  style={{ color: colors.secondaryText }}
-                  className="text-xs mt-1"
-                >
-                  Calories
-                </Text>
-              </View>
+                <Pencil size={18} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
+              </TouchableOpacity>
             </View>
           </View>
-        </View>
 
-        {/* Achievements */}
-        <View className="mt-6">
-          <View className="flex-row justify-between items-center mb-3">
-            <Text
-              style={{ color: colors.text }}
-              className={`${headerTextClass} font-bold`}
-            >
-              My Achievements
-            </Text>
-            <TouchableOpacity>
-              <Text className="text-[#8B5CF6] text-sm">View All</Text>
-            </TouchableOpacity>
-          </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            className="pb-1"
-          >
-            <TouchableOpacity
-              className={`mr-3 ${
-                isSmallDevice
-                  ? "w-32 h-20"
-                  : isLargeDevice
-                  ? "w-44 h-28"
-                  : "w-36 h-24"
-              } overflow-hidden rounded-xl shadow-sm`}
-            >
-              <LinearGradient
-                colors={["#8B5CF6", "#6366F1"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                className="p-3 w-full h-full justify-between"
-              >
-                <View className="items-center bg-white/20 self-start p-1 rounded-full">
-                  <Trophy size={isSmallDevice ? 12 : 14} color="#FFF" />
+          {/* Stats Summary */}
+          <View className={`${sectionPadding} py-5`}>
+            <View className="flex-row justify-between">
+              <View className="flex-1 items-center flex-row">
+                <View 
+                  style={{
+                    backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                    width: 40,
+                    height: 40,
+                    borderRadius: 12,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginRight: 10
+                  }}
+                >
+                  <Activity size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
                 </View>
                 <View>
-                  <Text
-                    className={`text-white font-medium ${
-                      isSmallDevice ? "text-xs" : "text-sm"
-                    }`}
-                  >
-                    30 Days Streak
+                  <Text style={{ color: colors.text }} className="text-xl font-bold">
+                    {userProfile?.stats.totalWorkouts || 0}
                   </Text>
-                  <Text className="text-white opacity-70 text-xs mt-1">
-                    Jan 15
+                  <Text style={{ color: colors.secondaryText }} className="text-xs">
+                    Workouts
                   </Text>
                 </View>
-              </LinearGradient>
-            </TouchableOpacity>
-            <TouchableOpacity
-              className={`mr-3 ${
-                isSmallDevice
-                  ? "w-32 h-20"
-                  : isLargeDevice
-                  ? "w-44 h-28"
-                  : "w-36 h-24"
-              } overflow-hidden rounded-xl shadow-sm`}
-            >
-              <LinearGradient
-                colors={["#6366F1", "#8B5CF6"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                className="p-3 w-full h-full justify-between"
-              >
-                <View className="items-center bg-white/20 self-start p-1 rounded-full">
-                  <Award size={isSmallDevice ? 12 : 14} color="#FFF" />
+              </View>
+              <View className="flex-1 items-center flex-row justify-center">
+                <View 
+                  style={{
+                    backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                    width: 40,
+                    height: 40,
+                    borderRadius: 12,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginRight: 10
+                  }}
+                >
+                  <Clock size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
                 </View>
                 <View>
-                  <Text
-                    className={`text-white font-medium ${
-                      isSmallDevice ? "text-xs" : "text-sm"
-                    }`}
-                  >
-                    First 5K
+                  <Text style={{ color: colors.text }} className="text-xl font-bold">
+                    {userProfile?.stats.totalHours || 0}h
                   </Text>
-                  <Text className="text-white opacity-70 text-xs mt-1">
-                    Dec 28
+                  <Text style={{ color: colors.secondaryText }} className="text-xs">
+                    Hours
                   </Text>
                 </View>
-              </LinearGradient>
-            </TouchableOpacity>
-          </ScrollView>
-        </View>
-
-        {/* Goals */}
-        <View
-          style={{ backgroundColor: colors.card }}
-          className={`mt-6 ${sectionPadding} rounded-xl shadow-sm`}
-        >
-          <Text
-            style={{ color: colors.text }}
-            className={`${headerTextClass} font-bold mb-4`}
-          >
-            Current Goals
-          </Text>
-          {/* Only render goals if all data is properly initialized */}
-          {userProfile?.goals &&
-          userProfile.goals.weeklyWorkouts &&
-          userProfile.goals.monthlyDistance &&
-          userProfile.goals.weightGoal ? (
-            <View className="space-y-5">
-              <View>
-                <View className="flex-row justify-between mb-1">
-                  <Text
-                    style={{ color: colors.text }}
-                    className={textSizeClass}
-                  >
-                    Weekly Workouts
-                  </Text>
-                  <Text
-                    style={{ color: colors.text }}
-                    className={textSizeClass}
-                    numberOfLines={1}
-                  >
-                    {Math.min(
-                      userProfile.goals.weeklyWorkouts.current,
-                      userProfile.goals.weeklyWorkouts.target
-                    )}{" "}
-                    / {userProfile.goals.weeklyWorkouts.target}
-                  </Text>
-                </View>
-                {renderProgressBar(
-                  Math.min(
-                    userProfile.goals.weeklyWorkouts.current,
-                    userProfile.goals.weeklyWorkouts.target
-                  ),
-                  userProfile.goals.weeklyWorkouts.target
-                )}
               </View>
-              <View>
-                <View className="flex-row justify-between mb-1">
-                  <Text
-                    style={{ color: colors.text }}
-                    className={textSizeClass}
-                  >
-                    Monthly Distance
+              <View className="flex-1 items-center flex-row justify-end">
+                <View 
+                  style={{
+                    backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                    width: 40,
+                    height: 40,
+                    borderRadius: 12,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginRight: 10
+                  }}
+                >
+                  <Flame size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
+                </View>
+                <View>
+                  <Text style={{ color: colors.text }} className="text-xl font-bold">
+                    {userProfile?.stats.totalCalories
+                      ? ((userProfile.stats.totalCalories || 0) / 1000).toFixed(1) + "k"
+                      : "0"}
                   </Text>
-                  <Text
-                    style={{ color: colors.text }}
-                    className={textSizeClass}
-                    numberOfLines={1}
-                  >
-                    {Math.min(
-                      userProfile.goals.monthlyDistance.current,
-                      userProfile.goals.monthlyDistance.target
-                    )}{" "}
-                    / {userProfile.goals.monthlyDistance.target} km
+                  <Text style={{ color: colors.secondaryText }} className="text-xs">
+                    Calories
                   </Text>
                 </View>
-                {renderProgressBar(
-                  Math.min(
-                    userProfile.goals.monthlyDistance.current,
-                    userProfile.goals.monthlyDistance.target
-                  ),
-                  userProfile.goals.monthlyDistance.target
-                )}
-              </View>
-              <View>
-                <View className="flex-row justify-between mb-1">
-                  <Text
-                    style={{ color: colors.text }}
-                    className={textSizeClass}
-                  >
-                    Weight Goal
-                  </Text>
-                  <Text
-                    style={{ color: colors.text }}
-                    className={`${textSizeClass} text-right`}
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                  >
-                    {typeof userProfile.goals.weightGoal.current === "number"
-                      ? userProfile.goals.weightGoal.current.toFixed(1)
-                      : "0.0"}{" "}
-                    /{" "}
-                    {typeof userProfile.goals.weightGoal.target === "number"
-                      ? userProfile.goals.weightGoal.target.toFixed(1)
-                      : "0.0"}{" "}
-                    kg
-                  </Text>
-                </View>
-                {renderProgressBar(
-                  typeof userProfile.goals.weightGoal.current === "number" &&
-                    typeof userProfile.goals.weightGoal.target === "number"
-                    ? calculateWeightProgress(
-                        userProfile.goals.weightGoal.current,
-                        userProfile.goals.weightGoal.target
-                      )
-                    : 0,
-                  100
-                )}
               </View>
             </View>
-          ) : (
-            <ActivityIndicator size="small" color={colors.accent} />
-          )}
+          </View>
         </View>
 
-        {/* Settings List */}
-        <View className="mt-6">
-          <Text
-            style={{ color: colors.text }}
-            className={`${headerTextClass} font-bold mb-4`}
-          >
-            Account &amp; Preferences
+        {/* Settings Categories */}
+        <View className="mb-6 mt-2">
+          <Text style={{ color: colors.text }} className={`${headerTextClass} font-bold mb-3`}>
+            Account
           </Text>
-
+          
           <TouchableOpacity
             style={{ backgroundColor: colors.card }}
             className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm mb-3`}
@@ -1499,17 +1428,53 @@ export default function SettingsScreen() {
           >
             <View className="flex-row items-center">
               <View
-                className={`${
-                  isSmallDevice ? "w-7 h-7" : "w-8 h-8"
-                } bg-indigo-100 rounded-full items-center justify-center`}
+                style={{
+                  backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}
               >
-                <SettingsIcon size={isSmallDevice ? 16 : 18} color="#6366F1" />
+                <User size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
               </View>
               <Text
                 style={{ color: colors.text }}
                 className={`ml-3 ${textSizeClass} font-medium`}
               >
-                Account Settings
+                Profile Information
+              </Text>
+            </View>
+            <ChevronRight
+              size={isSmallDevice ? 16 : 18}
+              color={colors.secondaryText}
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={{ backgroundColor: colors.card }}
+            className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm mb-3`}
+            onPress={() => handleSettingsNavigation("Privacy Settings")}
+          >
+            <View className="flex-row items-center">
+              <View
+                style={{
+                  backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}
+              >
+                <Lock size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
+              </View>
+              <Text
+                style={{ color: colors.text }}
+                className={`ml-3 ${textSizeClass} font-medium`}
+              >
+                Privacy & Security
               </Text>
             </View>
             <ChevronRight
@@ -1525,17 +1490,22 @@ export default function SettingsScreen() {
           >
             <View className="flex-row items-center">
               <View
-                className={`${
-                  isSmallDevice ? "w-7 h-7" : "w-8 h-8"
-                } bg-blue-100 rounded-full items-center justify-center`}
+                style={{
+                  backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}
               >
-                <Bell size={isSmallDevice ? 16 : 18} color="#3B82F6" />
+                <Bell size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
               </View>
               <Text
                 style={{ color: colors.text }}
                 className={`ml-3 ${textSizeClass} font-medium`}
               >
-                Notification Preferences
+                Notifications
               </Text>
             </View>
             <ChevronRight
@@ -1543,32 +1513,12 @@ export default function SettingsScreen() {
               color={colors.secondaryText}
             />
           </TouchableOpacity>
+        </View>
 
-          <TouchableOpacity
-            style={{ backgroundColor: colors.card }}
-            className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm mb-3`}
-            onPress={() => handleSettingsNavigation("Connected Devices")}
-          >
-            <View className="flex-row items-center">
-              <View
-                className={`${
-                  isSmallDevice ? "w-7 h-7" : "w-8 h-8"
-                } bg-green-100 rounded-full items-center justify-center`}
-              >
-                <Smartphone size={isSmallDevice ? 16 : 18} color="#10B981" />
-              </View>
-              <Text
-                style={{ color: colors.text }}
-                className={`ml-3 ${textSizeClass} font-medium`}
-              >
-                Connected Devices
-              </Text>
-            </View>
-            <ChevronRight
-              size={isSmallDevice ? 16 : 18}
-              color={colors.secondaryText}
-            />
-          </TouchableOpacity>
+        <View className="mb-6">
+          <Text style={{ color: colors.text }} className={`${headerTextClass} font-bold mb-3`}>
+            Preferences
+          </Text>
 
           <TouchableOpacity
             style={{ backgroundColor: colors.card }}
@@ -1577,17 +1527,26 @@ export default function SettingsScreen() {
           >
             <View className="flex-row items-center">
               <View
-                className={`${
-                  isSmallDevice ? "w-7 h-7" : "w-8 h-8"
-                } bg-indigo-100 rounded-full items-center justify-center`}
+                style={{
+                  backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}
               >
-                <Moon size={isSmallDevice ? 16 : 18} color="#6366F1" />
+                {isDarkMode ? (
+                  <Moon size={20} color="#8B5CF6" />
+                ) : (
+                  <Sun size={20} color="#6366F1" />
+                )}
               </View>
               <Text
                 style={{ color: colors.text }}
                 className={`ml-3 ${textSizeClass} font-medium`}
               >
-                Theme Preferences
+                Appearance
               </Text>
             </View>
             <View className="flex-row items-center">
@@ -1607,21 +1566,26 @@ export default function SettingsScreen() {
           <TouchableOpacity
             style={{ backgroundColor: colors.card }}
             className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm mb-3`}
-            onPress={() => handleSettingsNavigation("Privacy Settings")}
+            onPress={() => handleSettingsNavigation("Connected Devices")}
           >
             <View className="flex-row items-center">
               <View
-                className={`${
-                  isSmallDevice ? "w-7 h-7" : "w-8 h-8"
-                } bg-purple-100 rounded-full items-center justify-center`}
+                style={{
+                  backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}
               >
-                <Lock size={isSmallDevice ? 16 : 18} color="#8B5CF6" />
+                <Smartphone size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
               </View>
               <Text
                 style={{ color: colors.text }}
                 className={`ml-3 ${textSizeClass} font-medium`}
               >
-                Privacy Settings
+                Connected Devices
               </Text>
             </View>
             <ChevronRight
@@ -1629,6 +1593,12 @@ export default function SettingsScreen() {
               color={colors.secondaryText}
             />
           </TouchableOpacity>
+        </View>
+
+        <View className="mb-6">
+          <Text style={{ color: colors.text }} className={`${headerTextClass} font-bold mb-3`}>
+            Support
+          </Text>
 
           <TouchableOpacity
             style={{ backgroundColor: colors.card }}
@@ -1637,176 +1607,234 @@ export default function SettingsScreen() {
           >
             <View className="flex-row items-center">
               <View
-                className={`${
-                  isSmallDevice ? "w-7 h-7" : "w-8 h-8"
-                } bg-yellow-100 rounded-full items-center justify-center`}
+                style={{
+                  backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}
               >
-                <HelpCircle size={isSmallDevice ? 16 : 18} color="#F59E0B" />
+                <HelpCircle size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
               </View>
               <Text
                 style={{ color: colors.text }}
                 className={`ml-3 ${textSizeClass} font-medium`}
               >
-                Help &amp; Support
+                Help & Support
               </Text>
             </View>
             <ChevronRight
               size={isSmallDevice ? 16 : 18}
               color={colors.secondaryText}
             />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={{ backgroundColor: colors.card }}
-            className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm mb-3`}
-            onPress={() => {
-              loadDatabaseDetails();
-              setDatabaseModalVisible(true);
-            }}
-          >
-            <View className="flex-row items-center">
-              <View
-                className={`${
-                  isSmallDevice ? "w-7 h-7" : "w-8 h-8"
-                } bg-purple-100 rounded-full items-center justify-center`}
-              >
-                <BarChart size={isSmallDevice ? 16 : 18} color="#8B5CF6" />
-              </View>
-              <Text
-                style={{ color: colors.text }}
-                className={`ml-3 ${textSizeClass} font-medium`}
-              >
-                View Database Details
-              </Text>
-            </View>
-            <ChevronRight
-              size={isSmallDevice ? 16 : 18}
-              color={colors.secondaryText}
-            />
-          </TouchableOpacity>
-
-          {/* Debug: Reset Workout Progress */}
-          <TouchableOpacity
-            style={{ backgroundColor: colors.card }}
-            className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm mb-3`}
-            onPress={resetWorkoutProgress}
-          >
-            <View className="flex-row items-center">
-              <View
-                className={`${
-                  isSmallDevice ? "w-7 h-7" : "w-8 h-8"
-                } bg-red-100 rounded-full items-center justify-center`}
-              >
-                <Activity size={isSmallDevice ? 16 : 18} color="#EF4444" />
-              </View>
-              <View>
-                <Text
-                  style={{ color: colors.text }}
-                  className={`ml-3 ${textSizeClass} font-medium text-red-500`}
-                >
-                  Reset Workout Progress
-                </Text>
-                <Text
-                  style={{ color: colors.secondaryText }}
-                  className="ml-3 text-xs"
-                >
-                  Debug: Reset today's workout data
-                </Text>
-              </View>
-            </View>
-            <ChevronRight
-              size={isSmallDevice ? 16 : 18}
-              color={colors.secondaryText}
-            />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={{ backgroundColor: colors.card }}
-            className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm mt-10`}
-            onPress={handleLogout}
-          >
-            <View className="flex-row items-center">
-              <View
-                className={`${
-                  isSmallDevice ? "w-7 h-7" : "w-8 h-8"
-                } bg-red-100 rounded-full items-center justify-center`}
-              >
-                <LogOut size={isSmallDevice ? 16 : 18} color="#EF4444" />
-              </View>
-              <Text
-                style={{ color: colors.text }}
-                className={`ml-3 ${textSizeClass} font-medium text-red-500`}
-              >
-                Log Out
-              </Text>
-            </View>
           </TouchableOpacity>
         </View>
 
-        <View className={`py-${isSmallDevice ? "8" : "10"} mt-4`}>
-          <Text
-            style={{ color: colors.secondaryText }}
-            className="text-center text-xs"
-          >
-            Version 2.1.0
+        {/* App Version */}
+        <View className="items-center mt-6 mb-4">
+          <Text style={{ color: colors.secondaryText }} className="text-xs">
+            Function Fit v2.1.0
           </Text>
-          <View
-            className={`flex-row justify-center space-x-${
-              isSmallDevice ? "6" : "8"
-            } mt-3`}
-          >
-            <TouchableOpacity>
-              <Text className="text-[#8B5CF6] text-xs font-medium">
-                Terms of Service
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity>
-              <Text className="text-[#8B5CF6] text-xs font-medium">
-                Privacy Policy
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Additional bottom padding for navbar */}
-          <View style={{ height: isSmallDevice ? 80 : 100 }} />
         </View>
+
+        {/* Logout Button */}
+        <TouchableOpacity
+          onPress={() => setShowLogoutModal(true)}
+          className={`mb-12 py-4 rounded-xl`}
+          style={{ 
+            backgroundColor: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.08)',
+            marginHorizontal: 20
+          }}
+        >
+          <View className="flex-row justify-center items-center">
+            <LogOut size={20} color="#EF4444" style={{ marginRight: 8 }} />
+            <Text
+              style={{ color: '#EF4444' }}
+              className="font-semibold"
+            >
+              Log Out
+            </Text>
+          </View>
+        </TouchableOpacity>
       </ScrollView>
 
-      {/* Add Bottom Navigation */}
-      <View className="absolute bottom-0 left-0 right-0">
-        <BottomNavigation activeTab="settings" />
-      </View>
+      <BottomNavigation activeTab="settings" />
 
-      {/* Edit Profile Modal */}
+      {/* Modals */}
+      {renderLogoutModal()}
+      {renderDatabaseModal()}
+      {showError && (
+        <Toast 
+          message={errorMessage} 
+          type="error"
+          visible={showError} 
+          onDismiss={() => setShowError(false)} 
+        />
+      )}
+
+      {/* Theme Selection Modal */}
       <Modal
-        animationType="slide"
+        visible={themeModalVisible}
         transparent={true}
-        visible={editModalVisible}
-        onRequestClose={handleCancel}
+        animationType="fade"
+        onRequestClose={() => setThemeModalVisible(false)}
       >
-        <View className="flex-1 bg-black/30 justify-end">
+        <View className="flex-1 justify-center items-center bg-black/50">
           <View
             style={{ backgroundColor: colors.card }}
-            className={`rounded-t-3xl ${
-              isLargeDevice ? "w-3/4 self-center rounded-3xl" : ""
-            }`}
+            className="w-5/6 rounded-2xl p-6"
           >
-            {/* Header */}
-            <View
-              style={{ borderBottomColor: colors.border }}
-              className="flex-row justify-between items-center p-4 border-b"
-            >
-              <TouchableOpacity onPress={handleCancel}>
-                <Text
-                  style={{ color: colors.secondaryText }}
-                  className="font-medium"
-                >
-                  Cancel
-                </Text>
-              </TouchableOpacity>
+            <View className="flex-row justify-between items-center mb-4">
               <Text
                 style={{ color: colors.text }}
-                className="text-lg font-bold"
+                className="text-xl font-bold"
+              >
+                Choose Theme
+              </Text>
+              <TouchableOpacity onPress={() => setThemeModalVisible(false)}>
+                <X size={24} color={colors.secondaryText} />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              onPress={() => {
+                setTheme("light");
+                setThemeModalVisible(false);
+              }}
+              className="flex-row items-center justify-between py-4 border-b border-gray-200"
+            >
+              <View className="flex-row items-center">
+                <Sun size={20} color="#6366F1" />
+                <Text
+                  style={{ color: colors.text }}
+                  className="text-base ml-3"
+                >
+                  Light
+                </Text>
+              </View>
+              {currentTheme === "light" && (
+                <Check size={20} color="#6366F1" />
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => {
+                setTheme("dark");
+                setThemeModalVisible(false);
+              }}
+              className="flex-row items-center justify-between py-4 border-b border-gray-200"
+            >
+              <View className="flex-row items-center">
+                <Moon size={20} color="#8B5CF6" />
+                <Text
+                  style={{ color: colors.text }}
+                  className="text-base ml-3"
+                >
+                  Dark
+                </Text>
+              </View>
+              {currentTheme === "dark" && (
+                <Check size={20} color="#8B5CF6" />
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => {
+                // @ts-ignore
+                setTheme("system");
+                setThemeModalVisible(false);
+              }}
+              className="flex-row items-center justify-between py-4"
+            >
+              <View className="flex-row items-center">
+                <Smartphone size={20} color={colors.text} />
+                <Text
+                  style={{ color: colors.text }}
+                  className="text-base ml-3"
+                >
+                  System Default
+                </Text>
+              </View>
+              {/* @ts-ignore */}
+              {currentTheme === "system" && (
+                <Check size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Gender Selection Modal */}
+      <Modal
+        visible={showGenderModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowGenderModal(false)}
+      >
+        <View className="flex-1 justify-center items-center bg-black/50">
+          <View
+            style={{ backgroundColor: colors.card }}
+            className="w-5/6 rounded-2xl p-6"
+          >
+            <View className="flex-row justify-between items-center mb-4">
+              <Text
+                style={{ color: colors.text }}
+                className="text-xl font-bold"
+              >
+                Select Gender
+              </Text>
+              <TouchableOpacity onPress={() => setShowGenderModal(false)}>
+                <X size={24} color={colors.secondaryText} />
+              </TouchableOpacity>
+            </View>
+
+            {["Male", "Female", "Non-binary", "Prefer not to say"].map((gender) => (
+              <TouchableOpacity
+                key={gender}
+                onPress={() => {
+                  const updatedProfile = {
+                    ...editedProfile,
+                    gender,
+                  };
+                  setEditedProfile(updatedProfile);
+                  saveEditProgress(updatedProfile);
+                  setShowGenderModal(false);
+                }}
+                className="flex-row items-center justify-between py-4 border-b border-gray-200"
+              >
+                <Text style={{ color: colors.text }} className="text-base">
+                  {gender}
+                </Text>
+                {editedProfile.gender === gender && (
+                  <Check size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Profile Edit Modal */}
+      <Modal
+        visible={editModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={handleCancel}
+      >
+        <View className="flex-1 bg-black/50">
+          <View
+            style={{ backgroundColor: colors.background }}
+            className="flex-1 mt-16 rounded-t-3xl"
+          >
+            <View className="p-4 flex-row justify-between items-center">
+              <TouchableOpacity onPress={handleCancel}>
+                <Text style={{ color: colors.secondaryText }}>Cancel</Text>
+              </TouchableOpacity>
+              <Text 
+                style={{ color: colors.text }}
+                className="text-lg font-semibold"
               >
                 Edit Profile
               </Text>
@@ -1814,296 +1842,259 @@ export default function SettingsScreen() {
                 onPress={handleSaveProfile}
                 disabled={isLoading}
               >
-                {isLoading ? (
-                  <ActivityIndicator size="small" color="#8B5CF6" />
-                ) : (
-                  <Text style={{ color: "#8B5CF6" }} className="font-medium">
-                    Save
-                  </Text>
-                )}
+                <Text
+                  style={{ color: isDarkMode ? "#8B5CF6" : "#6366F1" }}
+                  className="font-medium"
+                >
+                  {isLoading ? "Saving..." : "Save"}
+                </Text>
               </TouchableOpacity>
             </View>
-
-            <ScrollView
-              className="p-4"
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 40 }}
-            >
-              {/* Profile Photo Section */}
+            
+            <ScrollView className="p-4" showsVerticalScrollIndicator={false}>
+              {/* Profile Photo */}
               <View className="items-center mb-6">
                 <View className="relative">
                   {uploadingImage ? (
                     <View className="w-20 h-20 rounded-full bg-gray-200 items-center justify-center">
-                      <ActivityIndicator color="#8B5CF6" />
+                      <ActivityIndicator color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
                     </View>
                   ) : (
                     <Image
-                      source={{
-                        uri: editedProfile.avatarUrl,
-                      }}
-                      className="w-20 h-20 rounded-full"
+                      source={{ uri: editedProfile.avatarUrl || userProfile.avatarUrl }}
+                      style={{ width: 80, height: 80, borderRadius: 40 }}
                     />
                   )}
                   <TouchableOpacity
-                    className="absolute bottom-0 right-0 bg-indigo-600 p-2 rounded-full"
-                    style={{ right: -3 }}
+                    style={{
+                      position: 'absolute',
+                      bottom: 0,
+                      right: -5,
+                      backgroundColor: isDarkMode ? "#8B5CF6" : "#6366F1",
+                      padding: 8,
+                      borderRadius: 20,
+                    }}
                     onPress={handleChangePhoto}
-                    disabled={uploadingImage}
                   >
                     <Camera size={16} color="#FFFFFF" />
                   </TouchableOpacity>
                 </View>
-                <TouchableOpacity
-                  className="mt-2"
-                  onPress={handleChangePhoto}
-                  disabled={uploadingImage}
-                >
-                  <Text className="text-indigo-600 text-sm">Change Photo</Text>
-                </TouchableOpacity>
               </View>
-
+              
               {/* Form Fields */}
-              <View className="space-y-6">
-                {/* Full Name */}
-                <View>
-                  <Text
-                    style={{ color: colors.secondaryText }}
-                    className="mb-2"
-                  >
-                    Full Name
-                  </Text>
-                  <View className="flex-row items-center border border-gray-300 rounded-lg overflow-hidden">
-                    <View className="pl-3 pr-2">
-                      <User size={20} color="#8B5CF6" />
-                    </View>
-                    <TextInput
-                      style={{ color: colors.text }}
-                      className="flex-1 p-4"
-                      placeholder="Enter your full name"
-                      value={editedProfile.fullName}
-                      onChangeText={(text) => {
-                        const updatedProfile = {
-                          ...editedProfile,
-                          fullName: text,
-                        };
-                        setEditedProfile(updatedProfile);
-                        saveEditProgress(updatedProfile);
-                      }}
-                    />
-                  </View>
-                </View>
-
+              <View className="space-y-4">
                 {/* Username */}
                 <View>
-                  <Text
-                    style={{ color: colors.secondaryText }}
-                    className="mb-2"
-                  >
+                  <Text style={{ color: colors.secondaryText }} className="mb-2 font-medium">
                     Username
                   </Text>
-                  <View className="flex-row items-center border border-gray-300 rounded-lg overflow-hidden">
-                    <View className="pl-3 pr-2">
-                      <User size={20} color="#8B5CF6" />
+                  <View 
+                    style={{ 
+                      borderColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                      borderWidth: 1, 
+                      borderRadius: 12 
+                    }}
+                    className="flex-row items-center overflow-hidden"
+                  >
+                    <View className="p-3">
+                      <User size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
                     </View>
                     <TextInput
-                      style={{ color: colors.text }}
-                      className="flex-1 p-4"
-                      placeholder="Choose a username"
+                      style={{ color: colors.text, flex: 1, paddingVertical: 12 }}
+                      placeholder="Enter username"
+                      placeholderTextColor={colors.secondaryText}
                       value={editedProfile.username}
                       onChangeText={(text) => {
-                        const updatedProfile = {
-                          ...editedProfile,
-                          username: text,
-                        };
-                        setEditedProfile(updatedProfile);
-                        saveEditProgress(updatedProfile);
+                        setEditedProfile({...editedProfile, username: text});
                       }}
                     />
                   </View>
                 </View>
-
+                
                 {/* Email */}
                 <View>
-                  <Text
-                    style={{ color: colors.secondaryText }}
-                    className="mb-2"
-                  >
+                  <Text style={{ color: colors.secondaryText }} className="mb-2 font-medium">
                     Email
                   </Text>
-                  <View className="flex-row items-center border border-gray-300 rounded-lg overflow-hidden">
-                    <View className="pl-3 pr-2">
-                      <Mail size={20} color="#8B5CF6" />
+                  <View 
+                    style={{ 
+                      borderColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                      borderWidth: 1, 
+                      borderRadius: 12 
+                    }}
+                    className="flex-row items-center overflow-hidden"
+                  >
+                    <View className="p-3">
+                      <Mail size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
                     </View>
                     <TextInput
-                      style={{ color: colors.text }}
-                      className="flex-1 p-4"
-                      placeholder="Your email address"
+                      style={{ color: colors.text, flex: 1, paddingVertical: 12 }}
+                      placeholder="Enter email"
+                      placeholderTextColor={colors.secondaryText}
                       keyboardType="email-address"
                       autoCapitalize="none"
-                      autoCorrect={false}
-                      autoComplete="email"
                       value={editedProfile.email}
                       onChangeText={(text) => {
-                        // Remove spaces from email as the user types
-                        const formattedEmail = text.replace(/\s+/g, "");
-                        const updatedProfile = {
-                          ...editedProfile,
-                          email: formattedEmail,
-                        };
-                        setEditedProfile(updatedProfile);
-                        saveEditProgress(updatedProfile);
+                        setEditedProfile({...editedProfile, email: text});
                       }}
                     />
                   </View>
-                  {editedProfile.email &&
-                    !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(
-                      editedProfile.email
-                    ) && (
-                      <Text className="text-red-500 text-xs mt-1">
-                        Please enter a valid email address
-                      </Text>
-                    )}
                 </View>
 
                 {/* Birthday */}
-                <View>
-                  <Text
-                    style={{ color: colors.secondaryText }}
-                    className="mb-2"
-                  >
+                <View style={{ marginBottom: 20 }}>
+                  <Text style={{ color: colors.secondaryText }} className="mb-2 font-medium">
                     Birthday
                   </Text>
-                  <View className="flex-row items-center border border-gray-300 rounded-lg overflow-hidden">
-                    <View className="pl-3 pr-2">
-                      <CalendarIcon size={20} color="#8B5CF6" />
+                  <CustomDateTimePicker
+                    date={editedProfile.birthday ? new Date(formatBirthdayStringToDate(editedProfile.birthday)) : new Date()}
+                    onChange={(date) => {
+                      const formattedDate = formatDateToBirthdayString(date);
+                      setEditedProfile({...editedProfile, birthday: formattedDate});
+                    }}
+                    mode="date"
+                    format="MM/dd/yyyy"
+                  />
+                </View>
+
+                {/* Age (Auto-calculated) */}
+                <View>
+                  <Text style={{ color: colors.secondaryText }} className="mb-2 font-medium">
+                    Age
+                  </Text>
+                  <View 
+                    style={{ 
+                      borderColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                      borderWidth: 1, 
+                      borderRadius: 12,
+                      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)'
+                    }}
+                    className="flex-row items-center overflow-hidden"
+                  >
+                    <View className="p-3">
+                      <Clock size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
                     </View>
-                    <TextInput
-                      style={{ color: colors.text }}
-                      className="flex-1 p-4"
-                      placeholder="MM/DD/YYYY"
-                      value={editedProfile.birthday}
-                      onChangeText={(text) => {
-                        const updatedProfile = {
-                          ...editedProfile,
-                          birthday: text,
-                        };
-                        setEditedProfile(updatedProfile);
-                        saveEditProgress(updatedProfile);
-                      }}
-                    />
+                    <Text
+                      style={{ color: colors.text, flex: 1, paddingVertical: 14, paddingHorizontal: 5 }}
+                    >
+                      {(() => {
+                        try {
+                          if (!editedProfile.birthday) return 'Auto-calculated from birthday';
+                          const dobParts = editedProfile.birthday.split('/');
+                          if (dobParts.length !== 3) return 'Invalid date format';
+                          
+                          const dob = new Date(
+                            parseInt(dobParts[2]), // Year
+                            parseInt(dobParts[0]) - 1, // Month (0-based)
+                            parseInt(dobParts[1]) // Day
+                          );
+                          
+                          const now = new Date();
+                          let age = now.getFullYear() - dob.getFullYear();
+                          
+                          // Check if birthday hasn't occurred yet this year
+                          if (
+                            now.getMonth() < dob.getMonth() || 
+                            (now.getMonth() === dob.getMonth() && now.getDate() < dob.getDate())
+                          ) {
+                            age--;
+                          }
+                          
+                          return isNaN(age) ? 'Invalid date' : `${age} years`;
+                        } catch (e) {
+                          return 'Error calculating age';
+                        }
+                      })()}
+                    </Text>
                   </View>
                 </View>
 
-                {/* Gender */}
+                {/* Gender (Selection) */}
                 <View>
-                  <Text
-                    style={{ color: colors.secondaryText }}
-                    className="mb-2"
-                  >
+                  <Text style={{ color: colors.secondaryText }} className="mb-2 font-medium">
                     Gender
                   </Text>
-                  <View
-                    className="border border-gray-300 rounded-lg overflow-hidden"
-                    style={{ borderColor: colors.border }}
+                  <TouchableOpacity
+                    onPress={() => setShowGenderModal(true)}
+                    style={{ 
+                      borderColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                      borderWidth: 1, 
+                      borderRadius: 12 
+                    }}
+                    className="flex-row items-center justify-between overflow-hidden"
                   >
                     <View className="flex-row items-center">
-                      <View className="pl-3 pr-2">
-                        <Users size={20} color="#8B5CF6" />
+                      <View className="p-3">
+                        <Users size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
                       </View>
-                      <TouchableOpacity
-                        onPress={() => {
-                          setShowGenderModal(true);
-                        }}
-                        className="flex-1 p-4"
-                      >
-                        <Text
-                          style={{
-                            color: editedProfile.gender
-                              ? colors.text
-                              : colors.secondaryText,
-                            fontWeight: editedProfile.gender ? "500" : "400",
-                          }}
-                        >
-                          {editedProfile.gender || "Select gender"}
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => {
-                          setShowGenderModal(true);
-                        }}
-                        className="pr-4 pl-2 py-4"
-                        style={{
-                          backgroundColor: isDarkMode
-                            ? "rgba(139, 92, 246, 0.1)"
-                            : "rgba(99, 102, 241, 0.05)",
-                          borderRadius: 8,
-                          marginRight: 8,
+                      <Text
+                        style={{ 
+                          color: editedProfile.gender ? colors.text : colors.secondaryText,
+                          paddingVertical: 14
                         }}
                       >
-                        <ChevronRightIcon
-                          size={18}
-                          color={isDarkMode ? "#8B5CF6" : "#6366F1"}
-                        />
-                      </TouchableOpacity>
+                        {editedProfile.gender || "Select gender"}
+                      </Text>
                     </View>
-                  </View>
+                    <View className="pr-4">
+                      <ChevronRight size={20} color={colors.secondaryText} />
+                    </View>
+                  </TouchableOpacity>
                 </View>
 
                 {/* Height */}
                 <View>
-                  <Text
-                    style={{ color: colors.secondaryText }}
-                    className="mb-2"
-                  >
+                  <Text style={{ color: colors.secondaryText }} className="mb-2 font-medium">
                     Height (cm)
                   </Text>
-                  <View className="flex-row items-center border border-gray-300 rounded-lg overflow-hidden">
-                    <View className="pl-3 pr-2">
-                      <Ruler size={20} color="#8B5CF6" />
+                  <View 
+                    style={{ 
+                      borderColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                      borderWidth: 1, 
+                      borderRadius: 12 
+                    }}
+                    className="flex-row items-center overflow-hidden"
+                  >
+                    <View className="p-3">
+                      <Ruler size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
                     </View>
                     <TextInput
-                      style={{ color: colors.text }}
-                      className="flex-1 p-4"
-                      placeholder="Height in cm"
+                      style={{ color: colors.text, flex: 1, paddingVertical: 12 }}
+                      placeholder="Enter height in cm"
+                      placeholderTextColor={colors.secondaryText}
                       keyboardType="numeric"
                       value={editedProfile.height}
                       onChangeText={(text) => {
-                        const updatedProfile = {
-                          ...editedProfile,
-                          height: text,
-                        };
-                        setEditedProfile(updatedProfile);
-                        saveEditProgress(updatedProfile);
+                        setEditedProfile({...editedProfile, height: text});
                       }}
                     />
                   </View>
                 </View>
 
                 {/* Weight */}
-                <View>
-                  <Text
-                    style={{ color: colors.secondaryText }}
-                    className="mb-2"
-                  >
+                <View style={{ marginBottom: 20 }}>
+                  <Text style={{ color: colors.secondaryText }} className="mb-2 font-medium">
                     Weight (kg)
                   </Text>
-                  <View className="flex-row items-center border border-gray-300 rounded-lg overflow-hidden">
-                    <View className="pl-3 pr-2">
-                      <Weight size={20} color="#8B5CF6" />
+                  <View 
+                    style={{ 
+                      borderColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                      borderWidth: 1, 
+                      borderRadius: 12 
+                    }}
+                    className="flex-row items-center overflow-hidden"
+                  >
+                    <View className="p-3">
+                      <Weight size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
                     </View>
                     <TextInput
-                      style={{ color: colors.text }}
-                      className="flex-1 p-4"
-                      placeholder="Weight in kg"
+                      style={{ color: colors.text, flex: 1, paddingVertical: 12 }}
+                      placeholder="Enter weight in kg"
+                      placeholderTextColor={colors.secondaryText}
                       keyboardType="numeric"
                       value={editedProfile.weight}
                       onChangeText={(text) => {
-                        const updatedProfile = {
-                          ...editedProfile,
-                          weight: text,
-                        };
-                        setEditedProfile(updatedProfile);
-                        saveEditProgress(updatedProfile);
+                        setEditedProfile({...editedProfile, weight: text});
                       }}
                     />
                   </View>
@@ -2113,370 +2104,6 @@ export default function SettingsScreen() {
           </View>
         </View>
       </Modal>
-
-      {/* Theme Preferences Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={themeModalVisible}
-        onRequestClose={() => setThemeModalVisible(false)}
-      >
-        <View className="flex-1 bg-black/50 justify-center items-center">
-          <View
-            style={{ backgroundColor: isDarkMode ? "#000000" : colors.card }}
-            className="rounded-3xl w-[85%] overflow-hidden shadow-lg"
-          >
-            {/* Header */}
-            <View
-              style={{ borderBottomColor: colors.border }}
-              className="flex-row justify-between items-center p-4 border-b"
-            >
-              <TouchableOpacity onPress={() => setThemeModalVisible(false)}>
-                <X
-                  size={20}
-                  color={isDarkMode ? "#AAAAAA" : colors.secondaryText}
-                />
-              </TouchableOpacity>
-              <Text
-                style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
-                className="text-lg font-bold"
-              >
-                Theme Preferences
-              </Text>
-              <View style={{ width: 20 }} />
-            </View>
-
-            <View
-              className="p-4 pb-8"
-              style={{ backgroundColor: isDarkMode ? "#000000" : colors.card }}
-            >
-              <Text
-                style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
-                className="font-bold text-base mb-4"
-              >
-                Choose Theme
-              </Text>
-
-              {/* Light Theme Option */}
-              <TouchableOpacity
-                style={{
-                  backgroundColor: isDarkMode ? "#000000" : "#F9FAFB",
-                  borderColor:
-                    currentTheme === "light"
-                      ? "#8B5CF6"
-                      : isDarkMode
-                      ? "#555555"
-                      : "#E5E7EB",
-                  borderWidth: 1,
-                }}
-                className="flex-row items-center justify-between p-4 rounded-xl mb-4"
-                onPress={() => setTheme("light")}
-              >
-                <View className="flex-row items-center">
-                  <View className="w-10 h-10 bg-yellow-100 rounded-full items-center justify-center">
-                    <Sun size={22} color="#F59E0B" />
-                  </View>
-                  <View className="ml-3">
-                    <Text
-                      style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
-                      className="font-medium"
-                    >
-                      Light
-                    </Text>
-                    <Text
-                      style={{
-                        color: isDarkMode ? "#CCCCCC" : colors.secondaryText,
-                      }}
-                      className="text-sm"
-                    >
-                      Default light appearance
-                    </Text>
-                  </View>
-                </View>
-                {currentTheme === "light" && (
-                  <Check color="#8B5CF6" size={20} />
-                )}
-              </TouchableOpacity>
-
-              {/* Dark Theme Option */}
-              <TouchableOpacity
-                style={{
-                  backgroundColor: isDarkMode ? "#000000" : "#F9FAFB",
-                  borderColor:
-                    currentTheme === "dark"
-                      ? "#8B5CF6"
-                      : isDarkMode
-                      ? "#555555"
-                      : "#E5E7EB",
-                  borderWidth: 1,
-                }}
-                className="flex-row items-center justify-between p-4 rounded-xl"
-                onPress={() => setTheme("dark")}
-              >
-                <View className="flex-row items-center">
-                  <View className="w-10 h-10 bg-[#222222] rounded-full items-center justify-center">
-                    <Moon size={22} color="#6366F1" />
-                  </View>
-                  <View className="ml-3">
-                    <Text
-                      style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
-                      className="font-medium"
-                    >
-                      Dark
-                    </Text>
-                    <Text
-                      style={{
-                        color: isDarkMode ? "#CCCCCC" : colors.secondaryText,
-                      }}
-                      className="text-sm"
-                    >
-                      Easier on the eyes in low light
-                    </Text>
-                  </View>
-                </View>
-                {currentTheme === "dark" && <Check color="#8B5CF6" size={20} />}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Gender Selection Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={showGenderModal}
-        onRequestClose={() => setShowGenderModal(false)}
-      >
-        <View className="flex-1 bg-black/50 justify-center items-center">
-          <View
-            style={{ backgroundColor: isDarkMode ? "#121212" : colors.card }}
-            className="rounded-3xl w-[85%] overflow-hidden shadow-lg"
-          >
-            {/* Header */}
-            <View
-              style={{ borderBottomColor: colors.border }}
-              className="flex-row justify-between items-center p-4 border-b"
-            >
-              <TouchableOpacity onPress={() => setShowGenderModal(false)}>
-                <X
-                  size={20}
-                  color={isDarkMode ? "#AAAAAA" : colors.secondaryText}
-                />
-              </TouchableOpacity>
-              <Text
-                style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
-                className="text-lg font-bold"
-              >
-                Select Gender
-              </Text>
-              <View style={{ width: 20 }} />
-            </View>
-
-            <View className="p-4 pb-8">
-              <TouchableOpacity
-                className="mb-3"
-                onPress={() => {
-                  const updatedProfile = { ...editedProfile, gender: "Male" };
-                  setEditedProfile(updatedProfile);
-                  saveEditProgress(updatedProfile);
-                  setShowGenderModal(false);
-                }}
-              >
-                <View
-                  className="p-4 rounded-xl flex-row items-center justify-between"
-                  style={{
-                    backgroundColor: isDarkMode ? "#1E1E1E" : "#F3F4F6",
-                    borderWidth: editedProfile.gender === "Male" ? 2 : 0,
-                    borderColor: isDarkMode ? "#8B5CF6" : "#6366F1",
-                  }}
-                >
-                  <View className="flex-row items-center">
-                    <View
-                      className="w-10 h-10 rounded-full items-center justify-center"
-                      style={{
-                        backgroundColor: isDarkMode ? "#312E81" : "#E0E7FF",
-                      }}
-                    >
-                      <User
-                        size={20}
-                        color={isDarkMode ? "#818CF8" : "#4F46E5"}
-                      />
-                    </View>
-                    <Text
-                      className="ml-3 font-medium text-base"
-                      style={{ color: colors.text }}
-                    >
-                      Male
-                    </Text>
-                  </View>
-                  {editedProfile.gender === "Male" && (
-                    <Check
-                      size={20}
-                      color={isDarkMode ? "#8B5CF6" : "#6366F1"}
-                    />
-                  )}
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                className="mb-3"
-                onPress={() => {
-                  const updatedProfile = { ...editedProfile, gender: "Female" };
-                  setEditedProfile(updatedProfile);
-                  saveEditProgress(updatedProfile);
-                  setShowGenderModal(false);
-                }}
-              >
-                <View
-                  className="p-4 rounded-xl flex-row items-center justify-between"
-                  style={{
-                    backgroundColor: isDarkMode ? "#1E1E1E" : "#F3F4F6",
-                    borderWidth: editedProfile.gender === "Female" ? 2 : 0,
-                    borderColor: isDarkMode ? "#8B5CF6" : "#6366F1",
-                  }}
-                >
-                  <View className="flex-row items-center">
-                    <View
-                      className="w-10 h-10 rounded-full items-center justify-center"
-                      style={{
-                        backgroundColor: isDarkMode ? "#831843" : "#FCE7F3",
-                      }}
-                    >
-                      <User
-                        size={20}
-                        color={isDarkMode ? "#F472B6" : "#EC4899"}
-                      />
-                    </View>
-                    <Text
-                      className="ml-3 font-medium text-base"
-                      style={{ color: colors.text }}
-                    >
-                      Female
-                    </Text>
-                  </View>
-                  {editedProfile.gender === "Female" && (
-                    <Check
-                      size={20}
-                      color={isDarkMode ? "#8B5CF6" : "#6366F1"}
-                    />
-                  )}
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                className="mb-3"
-                onPress={() => {
-                  const updatedProfile = {
-                    ...editedProfile,
-                    gender: "Non-binary",
-                  };
-                  setEditedProfile(updatedProfile);
-                  saveEditProgress(updatedProfile);
-                  setShowGenderModal(false);
-                }}
-              >
-                <View
-                  className="p-4 rounded-xl flex-row items-center justify-between"
-                  style={{
-                    backgroundColor: isDarkMode ? "#1E1E1E" : "#F3F4F6",
-                    borderWidth: editedProfile.gender === "Non-binary" ? 2 : 0,
-                    borderColor: isDarkMode ? "#8B5CF6" : "#6366F1",
-                  }}
-                >
-                  <View className="flex-row items-center">
-                    <View
-                      className="w-10 h-10 rounded-full items-center justify-center"
-                      style={{
-                        backgroundColor: isDarkMode ? "#065F46" : "#D1FAE5",
-                      }}
-                    >
-                      <Users
-                        size={20}
-                        color={isDarkMode ? "#34D399" : "#10B981"}
-                      />
-                    </View>
-                    <Text
-                      className="ml-3 font-medium text-base"
-                      style={{ color: colors.text }}
-                    >
-                      Non-binary
-                    </Text>
-                  </View>
-                  {editedProfile.gender === "Non-binary" && (
-                    <Check
-                      size={20}
-                      color={isDarkMode ? "#8B5CF6" : "#6366F1"}
-                    />
-                  )}
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => {
-                  const updatedProfile = {
-                    ...editedProfile,
-                    gender: "Prefer not to say",
-                  };
-                  setEditedProfile(updatedProfile);
-                  saveEditProgress(updatedProfile);
-                  setShowGenderModal(false);
-                }}
-              >
-                <View
-                  className="p-4 rounded-xl flex-row items-center justify-between"
-                  style={{
-                    backgroundColor: isDarkMode ? "#1E1E1E" : "#F3F4F6",
-                    borderWidth:
-                      editedProfile.gender === "Prefer not to say" ? 2 : 0,
-                    borderColor: isDarkMode ? "#8B5CF6" : "#6366F1",
-                  }}
-                >
-                  <View className="flex-row items-center">
-                    <View
-                      className="w-10 h-10 rounded-full items-center justify-center"
-                      style={{
-                        backgroundColor: isDarkMode ? "#1F2937" : "#F3F4F6",
-                      }}
-                    >
-                      <Users
-                        size={20}
-                        color={isDarkMode ? "#9CA3AF" : "#6B7280"}
-                      />
-                    </View>
-                    <Text
-                      className="ml-3 font-medium text-base"
-                      style={{ color: colors.text }}
-                    >
-                      Prefer not to say
-                    </Text>
-                  </View>
-                  {editedProfile.gender === "Prefer not to say" && (
-                    <Check
-                      size={20}
-                      color={isDarkMode ? "#8B5CF6" : "#6366F1"}
-                    />
-                  )}
-                </View>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Toast for error messages */}
-      <Toast
-        message={errorMessage}
-        type="error"
-        visible={showError}
-        onDismiss={() => setShowError(false)}
-      />
-
-      {/* Render the database modal */}
-      {renderDatabaseModal()}
-
-      {/* Render logout confirmation modal */}
-      {renderLogoutModal()}
     </SafeAreaView>
   );
 }
