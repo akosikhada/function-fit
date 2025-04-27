@@ -109,31 +109,6 @@ export default function WorkoutPlayerScreen() {
   // Animation for completion confetti
   const completionAnim = useRef(new Animated.Value(0)).current;
 
-  // Animation for pulse effect
-  const pulseAnim = React.useRef(new Animated.Value(1)).current;
-
-  // Setup pulse animation for rest state
-  React.useEffect(() => {
-    if (isResting) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.05,
-            duration: 1000,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 1000,
-            useNativeDriver: true,
-          }),
-        ])
-      ).start();
-    } else {
-      pulseAnim.setValue(1);
-    }
-  }, [isResting]);
-
   // Function to parse duration string to seconds
   const parseDuration = (durationStr: string | number | undefined): number => {
     // If already a number, return it
@@ -271,6 +246,29 @@ export default function WorkoutPlayerScreen() {
         // Get workout data from Supabase
         const workoutData = await getWorkoutById(workoutId);
 
+        // Deduplicate exercises by ID
+        let uniqueExercises = [];
+        if (workoutData?.exercises && Array.isArray(workoutData.exercises)) {
+          // Create a Map to deduplicate by exercise ID
+          const uniqueExerciseMap = new Map();
+
+          for (const exercise of workoutData.exercises) {
+            // Skip if we already have this exercise ID
+            if (uniqueExerciseMap.has(exercise.id)) continue;
+
+            uniqueExerciseMap.set(exercise.id, exercise);
+          }
+
+          uniqueExercises = Array.from(uniqueExerciseMap.values());
+        } else {
+          uniqueExercises = workoutData?.exercises || [];
+        }
+
+        console.log(
+          `Original exercise count: ${workoutData?.exercises?.length || 0}`
+        );
+        console.log(`After deduplication: ${uniqueExercises.length}`);
+
         // Format the workout data
         const formattedWorkout: WorkoutData = {
           id: workoutData?.id || id || "1",
@@ -283,7 +281,7 @@ export default function WorkoutPlayerScreen() {
             workoutData?.image_url ||
             "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=500&q=80",
           exercises:
-            workoutData?.exercises?.map((ex: any) => ({
+            uniqueExercises.map((ex: any) => ({
               id: ex?.id || `ex-${Math.random().toString(36).substring(7)}`,
               name: ex?.name || "Exercise",
               duration: ex?.duration || "45 sec",
@@ -342,20 +340,28 @@ export default function WorkoutPlayerScreen() {
 
       if (user && workout) {
         try {
-          // Calculate workout duration in minutes (rounded up)
-          const durationInMinutes = Math.ceil(totalTimeElapsed / 60);
+          // Calculate workout duration in minutes - for test workouts, make sure we're storing the actual elapsed time
+          // even if it's just a few seconds
+          const durationInMinutes = Math.max(
+            Math.ceil(totalTimeElapsed / 60),
+            1
+          );
 
-          // Estimate calories - this is a more accurate calculation
+          // For very short test workouts (less than 1 minute), record the actual seconds for accuracy
+          const actualDurationInSeconds = totalTimeElapsed;
+
+          // Estimate calories - use a more accurate calculation for short workouts
           const estimatedCalories = Math.max(
             Math.round(caloriesBurned),
-            Math.round(durationInMinutes * 8)
+            // For very short workouts, use a lower multiplier
+            actualDurationInSeconds < 60 ? 5 : Math.round(durationInMinutes * 8)
           );
 
           // Log the completed workout using the updated completeWorkout function
           const result = await completeWorkout(
             user.id,
             workout.id,
-            durationInMinutes,
+            durationInMinutes, // This is what gets stored in the database
             estimatedCalories
           );
 
@@ -905,11 +911,23 @@ export default function WorkoutPlayerScreen() {
       <View
         style={{
           paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 0,
-          backgroundColor: getAccentColor(),
+          backgroundColor: isDarkMode ? colors.card : getAccentColor(),
+          borderBottomLeftRadius: 30,
+          borderBottomRightRadius: 30,
+          overflow: "hidden",
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: isDarkMode ? 0.3 : 0.15,
+          shadowRadius: 8,
+          elevation: 5,
         }}
       >
         <LinearGradient
-          colors={[getAccentColor(), "transparent"]}
+          colors={
+            isDarkMode
+              ? [colors.card, "rgba(30, 30, 40, 0.9)"]
+              : [getAccentColor(), "rgba(255, 255, 255, 0.9)"]
+          }
           start={{ x: 0, y: 0 }}
           end={{ x: 0, y: 1 }}
           style={{
@@ -917,8 +935,8 @@ export default function WorkoutPlayerScreen() {
             left: 0,
             right: 0,
             top: 0,
-            height: 120,
-            opacity: 0.5,
+            height: 160,
+            opacity: 0.9,
           }}
         />
 
@@ -928,37 +946,57 @@ export default function WorkoutPlayerScreen() {
             flexDirection: "row",
             justifyContent: "space-between",
             alignItems: "center",
+            paddingTop:
+              Platform.OS === "ios"
+                ? getSpacing(12, 16, 20)
+                : getSpacing(16, 24, 28),
           }}
         >
           <TouchableOpacity
             onPress={handleQuitWorkout}
             style={{
-              backgroundColor: "rgba(255,255,255,0.2)",
+              backgroundColor: isDarkMode
+                ? "rgba(255,255,255,0.15)"
+                : "rgba(255,255,255,0.3)",
               borderRadius: 20,
-              width: getSpacing(32, 36, 40),
-              height: getSpacing(32, 36, 40),
+              width: getSpacing(38, 42, 46),
+              height: getSpacing(38, 42, 46),
               alignItems: "center",
               justifyContent: "center",
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.2,
+              shadowRadius: 4,
+              elevation: 3,
             }}
           >
-            <XCircle size={getSpacing(20, 22, 24)} color="#FFF" />
+            <XCircle
+              size={getSpacing(20, 22, 24)}
+              color={isDarkMode ? "#FFF" : "#6366F1"}
+            />
           </TouchableOpacity>
 
           <View
             style={{
               alignItems: "center",
-              backgroundColor: "rgba(255,255,255,0.15)",
-              paddingHorizontal: getSpacing(12, 16, 20),
-              paddingVertical: getSpacing(4, 6, 8),
-              borderRadius: 20,
+              backgroundColor: isDarkMode
+                ? "rgba(255,255,255,0.1)"
+                : "rgba(255,255,255,0.25)",
+              paddingHorizontal: getSpacing(16, 20, 24),
+              paddingVertical: getSpacing(6, 8, 10),
+              borderRadius: 24,
               maxWidth: isSmallScreen ? SCREEN_WIDTH * 0.5 : SCREEN_WIDTH * 0.6,
+              borderWidth: 1,
+              borderColor: isDarkMode
+                ? "rgba(255,255,255,0.15)"
+                : "rgba(255,255,255,0.4)",
             }}
           >
             <Text
               style={{
-                fontSize: getFontSize(14, 18, 20),
+                fontSize: getFontSize(16, 18, 20),
                 fontWeight: "700",
-                color: "#FFFFFF",
+                color: isDarkMode ? "#FFFFFF" : "#4F46E5",
                 textAlign: "center",
               }}
               numberOfLines={1}
@@ -970,15 +1008,25 @@ export default function WorkoutPlayerScreen() {
 
           <View
             style={{
-              width: getSpacing(32, 36, 40),
-              height: getSpacing(32, 36, 40),
-              backgroundColor: "rgba(255,255,255,0.2)",
+              width: getSpacing(38, 42, 46),
+              height: getSpacing(38, 42, 46),
+              backgroundColor: isDarkMode
+                ? "rgba(255,255,255,0.15)"
+                : "rgba(255,255,255,0.3)",
               borderRadius: 20,
               alignItems: "center",
               justifyContent: "center",
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.2,
+              shadowRadius: 4,
+              elevation: 3,
             }}
           >
-            <Flame size={getSpacing(16, 18, 20)} color="#FFFFFF" />
+            <Flame
+              size={getSpacing(18, 20, 22)}
+              color={isDarkMode ? "#FFF" : "#6366F1"}
+            />
           </View>
         </View>
 
@@ -987,24 +1035,39 @@ export default function WorkoutPlayerScreen() {
           style={{
             flexDirection: "row",
             justifyContent: "space-around",
-            paddingBottom: getSpacing(12, 16, 20),
-            paddingHorizontal: getSpacing(12, 16, 20),
+            paddingBottom: getSpacing(16, 20, 24),
+            paddingHorizontal: getSpacing(16, 20, 24),
+            marginTop: getSpacing(8, 12, 16),
           }}
         >
-          <View style={{ alignItems: "center" }}>
+          <View
+            style={{
+              alignItems: "center",
+              backgroundColor: isDarkMode
+                ? "rgba(255,255,255,0.08)"
+                : "rgba(255,255,255,0.2)",
+              borderRadius: 16,
+              paddingVertical: getSpacing(6, 8, 10),
+              paddingHorizontal: getSpacing(12, 16, 20),
+              borderWidth: 1,
+              borderColor: isDarkMode
+                ? "rgba(255,255,255,0.12)"
+                : "rgba(255,255,255,0.3)",
+            }}
+          >
             <Text
               style={{
-                color: "#FFFFFF",
-                opacity: 0.8,
+                color: isDarkMode ? "rgba(255,255,255,0.8)" : "#4F46E5",
                 marginBottom: 4,
-                fontSize: getFontSize(10, 12, 14),
+                fontSize: getFontSize(11, 13, 15),
+                fontWeight: "500",
               }}
             >
               TIME
             </Text>
             <Text
               style={{
-                color: "#FFFFFF",
+                color: isDarkMode ? "#FFFFFF" : "#4F46E5",
                 fontWeight: "700",
                 fontSize: getFontSize(14, 16, 18),
               }}
@@ -1013,44 +1076,72 @@ export default function WorkoutPlayerScreen() {
             </Text>
           </View>
 
-          <View style={{ alignItems: "center" }}>
+          <View
+            style={{
+              alignItems: "center",
+              backgroundColor: isDarkMode
+                ? "rgba(255,255,255,0.08)"
+                : "rgba(255,255,255,0.2)",
+              borderRadius: 16,
+              paddingVertical: getSpacing(6, 8, 10),
+              paddingHorizontal: getSpacing(12, 16, 20),
+              borderWidth: 1,
+              borderColor: isDarkMode
+                ? "rgba(255,255,255,0.12)"
+                : "rgba(255,255,255,0.3)",
+            }}
+          >
             <Text
               style={{
-                color: "#FFFFFF",
-                opacity: 0.8,
+                color: isDarkMode ? "rgba(255,255,255,0.8)" : "#4F46E5",
                 marginBottom: 4,
-                fontSize: getFontSize(10, 12, 14),
+                fontSize: getFontSize(11, 13, 15),
+                fontWeight: "500",
               }}
             >
               PROGRESS
             </Text>
             <Text
               style={{
-                color: "#FFFFFF",
                 fontWeight: "700",
                 fontSize: getFontSize(14, 16, 18),
+                color: isDarkMode ? "#FFFFFF" : "#4F46E5",
               }}
             >
               {calculateProgress()}%
             </Text>
           </View>
 
-          <View style={{ alignItems: "center" }}>
+          <View
+            style={{
+              alignItems: "center",
+              backgroundColor: isDarkMode
+                ? "rgba(255,255,255,0.08)"
+                : "rgba(255,255,255,0.2)",
+              borderRadius: 16,
+              paddingVertical: getSpacing(6, 8, 10),
+              paddingHorizontal: getSpacing(12, 16, 20),
+              borderWidth: 1,
+              borderColor: isDarkMode
+                ? "rgba(255,255,255,0.12)"
+                : "rgba(255,255,255,0.3)",
+            }}
+          >
             <Text
               style={{
-                color: "#FFFFFF",
-                opacity: 0.8,
+                color: isDarkMode ? "rgba(255,255,255,0.8)" : "#4F46E5",
                 marginBottom: 4,
-                fontSize: getFontSize(10, 12, 14),
+                fontSize: getFontSize(11, 13, 15),
+                fontWeight: "500",
               }}
             >
               CALORIES
             </Text>
             <Text
               style={{
-                color: "#FFFFFF",
                 fontWeight: "700",
                 fontSize: getFontSize(14, 16, 18),
+                color: isDarkMode ? "#FFFFFF" : "#4F46E5",
               }}
             >
               {Math.round(caloriesBurned)}
@@ -1061,9 +1152,11 @@ export default function WorkoutPlayerScreen() {
         {/* Progress bar */}
         <View
           style={{
-            height: 4,
+            height: 6,
             backgroundColor: "rgba(255,255,255,0.2)",
             width: "100%",
+            borderBottomLeftRadius: 30,
+            borderBottomRightRadius: 30,
           }}
         >
           <View
@@ -1071,6 +1164,8 @@ export default function WorkoutPlayerScreen() {
               height: "100%",
               width: `${calculateProgress()}%`,
               backgroundColor: "#FFFFFF",
+              borderBottomLeftRadius: 30,
+              borderBottomRightRadius: calculateProgress() === 100 ? 30 : 0,
             }}
           />
         </View>
@@ -1085,31 +1180,43 @@ export default function WorkoutPlayerScreen() {
       >
         <View style={{ flex: 1, justifyContent: "space-between" }}>
           {/* Current exercise section */}
-          <Animated.View
+          <View
             style={{
               paddingHorizontal: getSpacing(16, 20, 24),
-              paddingTop: getSpacing(20, 24, 30),
+              paddingTop: getSpacing(24, 28, 32),
               paddingBottom: getSpacing(20, 24, 30),
               alignItems: "center",
-              transform: [{ scale: isResting ? pulseAnim : 1 }],
             }}
           >
             <View
               style={{
-                backgroundColor: isDarkMode
-                  ? "rgba(255,255,255,0.08)"
-                  : "rgba(0,0,0,0.03)",
-                paddingVertical: getSpacing(4, 6, 8),
-                paddingHorizontal: getSpacing(10, 14, 18),
+                backgroundColor: isResting
+                  ? isDarkMode
+                    ? "rgba(16, 185, 129, 0.15)"
+                    : "rgba(16, 185, 129, 0.08)"
+                  : isDarkMode
+                  ? "rgba(139, 92, 246, 0.15)"
+                  : "rgba(99, 102, 241, 0.08)",
+                paddingVertical: getSpacing(6, 8, 10),
+                paddingHorizontal: getSpacing(14, 18, 22),
                 borderRadius: 16,
-                marginBottom: getSpacing(12, 16, 20),
+                marginBottom: getSpacing(16, 20, 24),
+                borderWidth: 1,
+                borderColor: isResting
+                  ? isDarkMode
+                    ? "rgba(16, 185, 129, 0.3)"
+                    : "rgba(16, 185, 129, 0.15)"
+                  : isDarkMode
+                  ? "rgba(139, 92, 246, 0.3)"
+                  : "rgba(99, 102, 241, 0.15)",
               }}
             >
               <Text
                 style={{
                   color: isResting ? "#10B981" : getAccentColor(),
                   fontWeight: "700",
-                  fontSize: getFontSize(12, 14, 16),
+                  fontSize: getFontSize(13, 15, 17),
+                  letterSpacing: 0.5,
                 }}
               >
                 {isResting
@@ -1124,10 +1231,11 @@ export default function WorkoutPlayerScreen() {
               style={{
                 color: colors.text,
                 fontWeight: "800",
-                fontSize: getFontSize(20, 26, 32),
+                fontSize: getFontSize(24, 28, 32),
                 marginBottom: getSpacing(8, 12, 16),
                 textAlign: "center",
                 paddingHorizontal: isSmallScreen ? 8 : 0,
+                letterSpacing: -0.5,
               }}
             >
               {currentActivity?.name || "Loading..."}
@@ -1138,25 +1246,30 @@ export default function WorkoutPlayerScreen() {
                 style={{
                   flexDirection: "row",
                   backgroundColor: isDarkMode
-                    ? "rgba(255,255,255,0.05)"
-                    : "rgba(0,0,0,0.02)",
+                    ? "rgba(255,255,255,0.08)"
+                    : "rgba(0,0,0,0.04)",
                   borderRadius: 20,
-                  paddingHorizontal: getSpacing(12, 16, 20),
-                  paddingVertical: getSpacing(6, 8, 10),
-                  marginBottom: getSpacing(20, 24, 30),
+                  paddingHorizontal: getSpacing(16, 20, 24),
+                  paddingVertical: getSpacing(8, 10, 12),
+                  marginBottom: getSpacing(24, 28, 32),
                   alignItems: "center",
+                  borderWidth: 1,
+                  borderColor: isDarkMode
+                    ? "rgba(255,255,255,0.1)"
+                    : "rgba(0,0,0,0.05)",
                 }}
               >
                 <Dumbbell
-                  size={getFontSize(12, 14, 16)}
+                  size={getFontSize(14, 16, 18)}
                   color={colors.secondaryText}
-                  style={{ marginRight: 8 }}
+                  style={{ marginRight: 10 }}
                 />
                 <Text
                   style={{
                     color: colors.secondaryText,
                     textAlign: "center",
-                    fontSize: getFontSize(12, 14, 16),
+                    fontSize: getFontSize(13, 15, 17),
+                    fontWeight: "500",
                   }}
                 >
                   {workout?.exercises[currentExerciseIndex]?.reps || "N/A"}{" "}
@@ -1191,7 +1304,7 @@ export default function WorkoutPlayerScreen() {
                 />
               </View>
             )}
-          </Animated.View>
+          </View>
 
           {/* Workout preview section */}
           <View
@@ -1199,13 +1312,13 @@ export default function WorkoutPlayerScreen() {
               backgroundColor: isDarkMode
                 ? "rgba(255,255,255,0.05)"
                 : colors.card,
-              padding: getSpacing(16, 20, 24),
+              padding: getSpacing(20, 24, 28),
               borderTopWidth: 1,
               borderTopColor: isDarkMode
                 ? "rgba(255,255,255,0.06)"
                 : "rgba(0,0,0,0.05)",
-              borderTopLeftRadius: 24,
-              borderTopRightRadius: 24,
+              borderTopLeftRadius: 30,
+              borderTopRightRadius: 30,
               shadowColor: "#000",
               shadowOffset: {
                 width: 0,
@@ -1214,13 +1327,14 @@ export default function WorkoutPlayerScreen() {
               shadowOpacity: isDarkMode ? 0.3 : 0.1,
               shadowRadius: 6,
               elevation: 5,
+              marginTop: 10,
             }}
           >
             <Text
               style={{
                 color: colors.secondaryText,
-                marginBottom: getSpacing(8, 12, 16),
-                fontSize: getFontSize(11, 13, 15),
+                marginBottom: getSpacing(14, 16, 18),
+                fontSize: getFontSize(12, 14, 16),
                 fontWeight: "600",
                 textTransform: "uppercase",
                 letterSpacing: 0.5,
@@ -1231,30 +1345,43 @@ export default function WorkoutPlayerScreen() {
 
             {/* Next exercise preview */}
             {nextExercise ? (
-              <View style={{ marginBottom: getSpacing(8, 12, 16) }}>
+              <View style={{ marginBottom: getSpacing(16, 20, 24) }}>
                 <View
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
                     backgroundColor: isDarkMode
-                      ? "rgba(255,255,255,0.03)"
-                      : "rgba(0,0,0,0.02)",
-                    borderRadius: 16,
-                    padding: getSpacing(10, 12, 16),
+                      ? "rgba(255,255,255,0.05)"
+                      : "rgba(0,0,0,0.03)",
+                    borderRadius: 20,
+                    padding: getSpacing(14, 16, 18),
                     borderLeftWidth: 4,
                     borderLeftColor: getAccentColor(),
                     marginBottom: 8,
+                    shadowColor: "#000",
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: isDarkMode ? 0.2 : 0.05,
+                    shadowRadius: 4,
+                    elevation: 2,
                   }}
                 >
                   <View
                     style={{
-                      width: getSpacing(36, 44, 52),
-                      height: getSpacing(36, 44, 52),
+                      width: getSpacing(44, 50, 56),
+                      height: getSpacing(44, 50, 56),
                       backgroundColor: getSecondaryAccentColor(),
-                      borderRadius: 12,
+                      borderRadius: 16,
                       alignItems: "center",
                       justifyContent: "center",
-                      marginRight: getSpacing(12, 16, 20),
+                      marginRight: getSpacing(14, 18, 22),
+                      borderWidth: 1,
+                      borderColor: isResting
+                        ? isDarkMode
+                          ? "rgba(16, 185, 129, 0.3)"
+                          : "rgba(16, 185, 129, 0.2)"
+                        : isDarkMode
+                        ? "rgba(139, 92, 246, 0.3)"
+                        : "rgba(99, 102, 241, 0.2)",
                     }}
                   >
                     <Text
@@ -1272,7 +1399,7 @@ export default function WorkoutPlayerScreen() {
                       style={{
                         fontWeight: "700",
                         color: colors.text,
-                        fontSize: getFontSize(14, 16, 18),
+                        fontSize: getFontSize(15, 17, 19),
                         marginBottom: 4,
                       }}
                     >
@@ -1291,6 +1418,12 @@ export default function WorkoutPlayerScreen() {
                           alignItems: "center",
                           marginRight: 10,
                           marginBottom: isSmallScreen ? 4 : 0,
+                          backgroundColor: isDarkMode
+                            ? "rgba(255,255,255,0.08)"
+                            : "rgba(0,0,0,0.03)",
+                          paddingVertical: 4,
+                          paddingHorizontal: 8,
+                          borderRadius: 12,
                         }}
                       >
                         <Clock
@@ -1302,36 +1435,40 @@ export default function WorkoutPlayerScreen() {
                           style={{
                             color: colors.secondaryText,
                             fontSize: getFontSize(12, 14, 16),
+                            fontWeight: "500",
                           }}
                         >
                           {nextExercise.duration || "45 sec"}
                         </Text>
                       </View>
 
-                      {!isSmallScreen && (
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          backgroundColor: isDarkMode
+                            ? "rgba(255,255,255,0.08)"
+                            : "rgba(0,0,0,0.03)",
+                          paddingVertical: 4,
+                          paddingHorizontal: 8,
+                          borderRadius: 12,
+                        }}
+                      >
                         <Text
                           style={{
                             color: colors.secondaryText,
-                            marginHorizontal: 4,
+                            fontSize: getFontSize(12, 14, 16),
+                            fontWeight: "500",
                           }}
                         >
-                          &bull;
+                          {nextExercise.reps || "N/A"}
                         </Text>
-                      )}
-
-                      <Text
-                        style={{
-                          color: colors.secondaryText,
-                          fontSize: getFontSize(12, 14, 16),
-                        }}
-                      >
-                        {nextExercise.reps || "N/A"}
-                      </Text>
+                      </View>
                     </View>
                   </View>
                   {!isSmallScreen && (
                     <ArrowRight
-                      size={getFontSize(16, 20, 24)}
+                      size={getFontSize(18, 22, 26)}
                       color={getAccentColor()}
                     />
                   )}
@@ -1343,28 +1480,32 @@ export default function WorkoutPlayerScreen() {
                   flexDirection: "row",
                   alignItems: "center",
                   backgroundColor: isDarkMode
-                    ? "rgba(255,255,255,0.08)"
-                    : "rgba(99, 102, 241, 0.1)",
+                    ? "rgba(16, 185, 129, 0.1)"
+                    : "rgba(16, 185, 129, 0.08)",
                   width: "100%",
-                  borderRadius: 12,
-                  padding: getSpacing(12, 16, 20),
-                  marginBottom: getSpacing(8, 12, 16),
+                  borderRadius: 16,
+                  padding: getSpacing(16, 20, 24),
+                  marginBottom: getSpacing(16, 20, 24),
+                  borderWidth: 1,
+                  borderColor: isDarkMode
+                    ? "rgba(16, 185, 129, 0.2)"
+                    : "rgba(16, 185, 129, 0.15)",
                 }}
               >
                 <Heart
-                  size={getFontSize(20, 24, 28)}
-                  color={getAccentColor()}
-                  style={{ marginRight: getSpacing(8, 12, 16) }}
+                  size={getFontSize(22, 26, 30)}
+                  color="#10B981"
+                  style={{ marginRight: getSpacing(12, 16, 20) }}
                 />
                 <Text
                   style={{
                     color: colors.text,
                     fontWeight: "600",
-                    fontSize: getFontSize(13, 15, 17),
+                    fontSize: getFontSize(14, 16, 18),
                     flex: 1,
                   }}
                 >
-                  Keep going! You're almost done!
+                  Keep going! You're almost done with your workout!
                 </Text>
               </View>
             )}
@@ -1374,9 +1515,11 @@ export default function WorkoutPlayerScreen() {
               <Text
                 style={{
                   color: colors.secondaryText,
-                  fontSize: getFontSize(11, 13, 15),
+                  fontSize: getFontSize(12, 14, 16),
                   fontWeight: "600",
-                  marginBottom: getSpacing(8, 12, 16),
+                  marginBottom: getSpacing(12, 14, 16),
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
                 }}
               >
                 UPCOMING EXERCISES
@@ -1392,7 +1535,7 @@ export default function WorkoutPlayerScreen() {
                         style={{
                           flexDirection: "row",
                           alignItems: "center",
-                          paddingVertical: getSpacing(8, 10, 12),
+                          paddingVertical: getSpacing(10, 12, 14),
                           borderBottomWidth:
                             index <
                             workout.exercises.slice(currentExerciseIndex + 1)
@@ -1403,29 +1546,32 @@ export default function WorkoutPlayerScreen() {
                           borderBottomColor: isDarkMode
                             ? "rgba(255,255,255,0.1)"
                             : "rgba(0,0,0,0.05)",
-                          opacity: 1 - index * 0.1,
+                          opacity:
+                            1 - index * 0.1 > 0.5 ? 1 - index * 0.1 : 0.5,
                         }}
                       >
                         <View
                           style={{
-                            width: getSpacing(26, 30, 36),
-                            height: getSpacing(26, 30, 36),
-                            borderRadius: getSpacing(13, 15, 18),
+                            width: getSpacing(32, 36, 40),
+                            height: getSpacing(32, 36, 40),
+                            borderRadius: getSpacing(16, 18, 20),
                             backgroundColor: isDarkMode
-                              ? "rgba(255,255,255,0.1)"
-                              : "rgba(0,0,0,0.05)",
+                              ? "rgba(255,255,255,0.08)"
+                              : "rgba(99, 102, 241, 0.08)",
                             alignItems: "center",
                             justifyContent: "center",
                             marginRight: getSpacing(12, 16, 20),
+                            borderWidth: 1,
+                            borderColor: isDarkMode
+                              ? "rgba(255,255,255,0.15)"
+                              : "rgba(99, 102, 241, 0.15)",
                           }}
                         >
                           <Text
                             style={{
-                              fontSize: getFontSize(12, 14, 16),
+                              fontSize: getFontSize(13, 15, 17),
                               fontWeight: "700",
-                              color: isDarkMode
-                                ? "rgba(255,255,255,0.7)"
-                                : "rgba(0,0,0,0.7)",
+                              color: isDarkMode ? "#A78BFA" : "#6366F1",
                             }}
                           >
                             {currentExerciseIndex + index + 2}
@@ -1435,10 +1581,10 @@ export default function WorkoutPlayerScreen() {
                         <View style={{ flex: 1 }}>
                           <Text
                             style={{
-                              fontSize: getFontSize(13, 15, 17),
+                              fontSize: getFontSize(14, 16, 18),
                               fontWeight: "600",
                               color: colors.text,
-                              marginBottom: 2,
+                              marginBottom: 4,
                             }}
                             numberOfLines={1}
                             ellipsizeMode="tail"
@@ -1452,37 +1598,64 @@ export default function WorkoutPlayerScreen() {
                               alignItems: "center",
                             }}
                           >
-                            <Text
+                            <View
                               style={{
-                                fontSize: getFontSize(11, 12, 14),
-                                color: colors.secondaryText,
+                                flexDirection: "row",
+                                alignItems: "center",
+                                backgroundColor: isDarkMode
+                                  ? "rgba(255,255,255,0.05)"
+                                  : "rgba(0,0,0,0.03)",
+                                paddingVertical: 3,
+                                paddingHorizontal: 6,
+                                borderRadius: 8,
+                                marginRight: 8,
                               }}
                             >
-                              {exercise.duration || "45 sec"}
-                            </Text>
-                            <Text
+                              <Clock
+                                size={getFontSize(10, 12, 14)}
+                                color={colors.secondaryText}
+                                style={{ marginRight: 4 }}
+                              />
+                              <Text
+                                style={{
+                                  fontSize: getFontSize(11, 12, 14),
+                                  color: colors.secondaryText,
+                                  fontWeight: "500",
+                                }}
+                              >
+                                {exercise.duration || "45 sec"}
+                              </Text>
+                            </View>
+
+                            <View
                               style={{
-                                color: colors.secondaryText,
-                                marginHorizontal: 4,
+                                flexDirection: "row",
+                                alignItems: "center",
+                                backgroundColor: isDarkMode
+                                  ? "rgba(255,255,255,0.05)"
+                                  : "rgba(0,0,0,0.03)",
+                                paddingVertical: 3,
+                                paddingHorizontal: 6,
+                                borderRadius: 8,
                               }}
                             >
-                              •
-                            </Text>
-                            <Text
-                              style={{
-                                fontSize: getFontSize(11, 12, 14),
-                                color: colors.secondaryText,
-                              }}
-                            >
-                              {exercise.reps || "N/A"}
-                            </Text>
+                              <Text
+                                style={{
+                                  fontSize: getFontSize(11, 12, 14),
+                                  color: colors.secondaryText,
+                                  fontWeight: "500",
+                                }}
+                              >
+                                {exercise.reps || "N/A"}
+                              </Text>
+                            </View>
                           </View>
                         </View>
 
                         <Dumbbell
-                          size={getFontSize(14, 16, 18)}
+                          size={getFontSize(16, 18, 20)}
                           color={colors.secondaryText}
-                          style={{ opacity: 0.5 }}
+                          style={{ opacity: 0.6, marginLeft: 8 }}
                         />
                       </View>
                     ))}
@@ -1494,9 +1667,9 @@ export default function WorkoutPlayerScreen() {
                     alignItems: "center",
                     justifyContent: "center",
                     backgroundColor: isDarkMode
-                      ? "rgba(255,255,255,0.03)"
-                      : "rgba(0,0,0,0.02)",
-                    borderRadius: 12,
+                      ? "rgba(255,255,255,0.05)"
+                      : "rgba(0,0,0,0.03)",
+                    borderRadius: 16,
                   }}
                 >
                   <Text
@@ -1514,25 +1687,30 @@ export default function WorkoutPlayerScreen() {
               {/* Workout completion info */}
               <View
                 style={{
-                  marginTop: getSpacing(16, 20, 24),
+                  marginTop: getSpacing(20, 24, 28),
                   backgroundColor: isDarkMode
-                    ? "rgba(255,255,255,0.03)"
-                    : "rgba(0,0,0,0.02)",
-                  borderRadius: 12,
-                  padding: getSpacing(12, 16, 20),
+                    ? "rgba(255,255,255,0.05)"
+                    : "rgba(0,0,0,0.03)",
+                  borderRadius: 16,
+                  padding: getSpacing(16, 20, 24),
+                  borderWidth: 1,
+                  borderColor: isDarkMode
+                    ? "rgba(255,255,255,0.08)"
+                    : "rgba(0,0,0,0.04)",
                 }}
               >
                 <View
                   style={{
                     flexDirection: "row",
                     justifyContent: "space-between",
-                    marginBottom: 8,
+                    marginBottom: 12,
                   }}
                 >
                   <Text
                     style={{
                       color: colors.secondaryText,
-                      fontSize: getFontSize(12, 13, 14),
+                      fontSize: getFontSize(13, 14, 15),
+                      fontWeight: "500",
                     }}
                   >
                     Total Exercises
@@ -1540,7 +1718,7 @@ export default function WorkoutPlayerScreen() {
                   <Text
                     style={{
                       color: colors.text,
-                      fontSize: getFontSize(12, 13, 14),
+                      fontSize: getFontSize(13, 14, 15),
                       fontWeight: "600",
                     }}
                   >
@@ -1552,13 +1730,14 @@ export default function WorkoutPlayerScreen() {
                   style={{
                     flexDirection: "row",
                     justifyContent: "space-between",
-                    marginBottom: 8,
+                    marginBottom: 12,
                   }}
                 >
                   <Text
                     style={{
                       color: colors.secondaryText,
-                      fontSize: getFontSize(12, 13, 14),
+                      fontSize: getFontSize(13, 14, 15),
+                      fontWeight: "500",
                     }}
                   >
                     Completed
@@ -1566,7 +1745,7 @@ export default function WorkoutPlayerScreen() {
                   <Text
                     style={{
                       color: colors.text,
-                      fontSize: getFontSize(12, 13, 14),
+                      fontSize: getFontSize(13, 14, 15),
                       fontWeight: "600",
                     }}
                   >
@@ -1586,7 +1765,8 @@ export default function WorkoutPlayerScreen() {
                   <Text
                     style={{
                       color: colors.secondaryText,
-                      fontSize: getFontSize(12, 13, 14),
+                      fontSize: getFontSize(13, 14, 15),
+                      fontWeight: "500",
                     }}
                   >
                     Estimated Time Left
@@ -1594,7 +1774,7 @@ export default function WorkoutPlayerScreen() {
                   <Text
                     style={{
                       color: colors.text,
-                      fontSize: getFontSize(12, 13, 14),
+                      fontSize: getFontSize(13, 14, 15),
                       fontWeight: "600",
                     }}
                   >

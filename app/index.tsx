@@ -12,6 +12,7 @@ import {
   Dimensions,
   Animated,
   useColorScheme,
+  Platform,
 } from "react-native";
 import { Stack, router, useFocusEffect } from "expo-router";
 import {
@@ -24,7 +25,9 @@ import {
   Apple,
   Bell,
   Utensils,
+  TrendingUp,
 } from "lucide-react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "./utils/supabase";
 import ThemeModule from "./utils/theme";
@@ -41,56 +44,41 @@ import {
   getUserProfile,
 } from "./utils/supabase";
 
+// Define the Activity type
+type Activity = {
+  id: string;
+  title: string;
+  type: "workout" | "run" | "cardio" | string;
+  duration?: string;
+  distance?: string;
+  calories?: string;
+  time: string;
+};
+
 // Default data structure to use while loading or if there's an error
 const defaultUserData = {
-  username: "Alex Parker",
-  stepsProgress: 84,
-  caloriesProgress: 70,
-  workoutProgress: 75,
-  stepsValue: "8,432",
-  caloriesValue: "420",
-  workoutValue: "45m",
+  username: "Loading...",
+  stepsProgress: 0,
+  caloriesProgress: 0,
+  workoutProgress: 0,
+  stepsValue: "0",
+  caloriesValue: "0",
+  workoutValue: "0m",
   streakCount: 0,
   achievements: [],
   todaysWorkout: {
-    id: "1",
-    title: "Full Body Strength",
-    duration: "45 mins",
-    level: "Intermediate",
-    imageUrl:
-      "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=500&q=80",
+    id: "",
+    title: "",
+    duration: "",
+    level: "",
+    imageUrl: "",
   },
-  recentActivities: [
-    {
-      id: "1",
-      title: "Upper Body Workout",
-      type: "workout",
-      duration: "45 min",
-      calories: "350",
-      time: "Today, 8:30 AM",
-    },
-    {
-      id: "2",
-      title: "Morning Run",
-      type: "run",
-      distance: "5.2 km",
-      duration: "32 min",
-      time: "Yesterday, 6:15 AM",
-    },
-    {
-      id: "3",
-      title: "Cardio Session",
-      type: "cardio",
-      duration: "45 min",
-      calories: "420",
-      time: "Yesterday, 5:30 PM",
-    },
-  ],
+  recentActivities: [] as Activity[],
 };
 
 const screenWidth = Dimensions.get("window").width;
 const isSmallScreen = screenWidth < 360;
-const horizontalPadding = isSmallScreen ? 16 : 24;
+const horizontalPadding = isSmallScreen ? 16 : 20;
 const buttonWidth = isSmallScreen ? "47%" : "48%";
 const iconSpacing = isSmallScreen ? 8 : 12;
 
@@ -124,6 +112,9 @@ export default function HomeScreen() {
   const activitiesAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
+  // Parallax scroll effect
+  const scrollY = useRef(new Animated.Value(0)).current;
+
   // Add state for progress data
   const [progressData, setProgressData] = useState({
     stepsValue: "0",
@@ -133,6 +124,31 @@ export default function HomeScreen() {
     workoutValue: "0/0",
     workoutProgress: 0,
   });
+
+  // onRefresh function for pull-to-refresh
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      // Reset all data sources
+      await fetchUserData();
+
+      // Show success message
+      setToast({
+        visible: true,
+        message: "Your fitness data has been updated",
+        type: "success",
+      });
+    } catch (error) {
+      console.error("Error during refresh:", error);
+      setToast({
+        visible: true,
+        message: "Failed to update your data",
+        type: "error",
+      });
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
   // Add an emergency refresh handler - this will be triggered on focus
   const performEmergencyRefresh = async () => {
@@ -213,18 +229,146 @@ export default function HomeScreen() {
     }
   };
 
-  // Check for dashboard refresh flag when screen comes into focus
+  // Add this helper function to directly update UI state after workout completion
+  const updateWorkoutStatsImmediate = async (userId: string) => {
+    try {
+      console.log("🚀 Attempting immediate stats update");
+      // Get today's date in YYYY-MM-DD format
+      const today = new Date().toISOString().split("T")[0];
+      const statsKey = `user_stats_${userId}_${today}`;
+
+      // Get the cached stats
+      const cachedStatsStr = await AsyncStorage.getItem(statsKey);
+      if (!cachedStatsStr) {
+        console.log("No cached stats found for immediate update");
+        return false;
+      }
+
+      const cachedStats = JSON.parse(cachedStatsStr);
+      console.log("Found cached stats for immediate update:", cachedStats);
+
+      // Update the UI directly with cached values
+      const workoutCount = Math.min(cachedStats.workouts_completed || 0, 10);
+      const caloriesCount = cachedStats.calories || 0;
+
+      // Calculate progress percentages
+      const workoutProgress = Math.min(
+        Math.round((workoutCount / 10) * 100),
+        100
+      );
+      const caloriesProgress = Math.min(
+        Math.round((caloriesCount / 600) * 100),
+        100
+      );
+
+      console.log(
+        `Setting immediate stats: workouts=${workoutCount}, calories=${caloriesCount}`
+      );
+
+      // Update both state objects to ensure consistency
+      setProgressData({
+        ...progressData,
+        workoutValue: `${workoutCount}/10`,
+        workoutProgress: workoutProgress,
+        caloriesValue: String(caloriesCount),
+        caloriesProgress: caloriesProgress,
+      });
+
+      setUserData((prevData) => ({
+        ...prevData,
+        workoutValue: `${workoutCount}/10`,
+        workoutProgress: workoutProgress,
+        caloriesValue: String(caloriesCount),
+        caloriesProgress: caloriesProgress,
+      }));
+
+      // Show success toast
+      setToast({
+        visible: true,
+        message: "Workout stats updated!",
+        type: "success",
+      });
+
+      console.log("Immediate stats update complete");
+      setLoading(false);
+      return true;
+    } catch (e) {
+      console.error("Error in immediate stats update:", e);
+      return false;
+    }
+  };
+
+  // Check for refresh flag
   useFocusEffect(
     React.useCallback(() => {
       const checkRefreshFlag = async () => {
         try {
           console.log("Home screen focused - checking for forced refresh");
+          setLoading(true);
 
-          // Check for emergency fix first - highest priority
-          const emergencyFixDone = await performEmergencyRefresh();
-          if (emergencyFixDone) {
-            console.log("Emergency fix applied, skipping normal refresh");
-            return;
+          // Check if workout was recently completed
+          const lastCompletion = await AsyncStorage.getItem(
+            "last_workout_completion"
+          );
+          const now = Date.now();
+          const lastCompletionTime = lastCompletion
+            ? new Date(lastCompletion).getTime()
+            : 0;
+          const timeSinceCompletion = now - lastCompletionTime;
+
+          // If workout was completed very recently (within 30 seconds), do immediate update
+          if (lastCompletion && timeSinceCompletion < 30 * 1000) {
+            console.log(
+              "Very recent workout completion detected, applying immediate update"
+            );
+            const user = await getUser();
+            if (user) {
+              const success = await updateWorkoutStatsImmediate(user.id);
+              if (success) {
+                // Also clear the workout completion flag to avoid redundant updates
+                await AsyncStorage.removeItem("last_workout_completion");
+                await AsyncStorage.removeItem("FORCE_REFRESH_HOME");
+                await AsyncStorage.removeItem("workout_started_at");
+                setLoading(false);
+                return;
+              }
+            }
+          }
+
+          // If workout was completed recently (within 1 minute), use force cache refresh
+          if (lastCompletion && timeSinceCompletion < 60 * 1000) {
+            console.log(
+              "Recent workout completion detected, forcing cache refresh"
+            );
+            // Get workout start time to calculate session duration
+            const workoutStartedAt = await AsyncStorage.getItem(
+              "workout_started_at"
+            );
+            const sessionDuration = workoutStartedAt
+              ? (now - parseInt(workoutStartedAt)) / 1000
+              : 0;
+
+            // If session was very short, prioritize emergency fix
+            if (sessionDuration < 60) {
+              // Less than 1 minute
+              // Check for emergency fix first - highest priority
+              const emergencyFixDone = await performEmergencyRefresh();
+              if (emergencyFixDone) {
+                console.log("Emergency fix applied, skipping normal refresh");
+                setLoading(false);
+                await AsyncStorage.removeItem("workout_started_at");
+                return;
+              }
+            }
+
+            // Force immediate cache refresh first
+            const success = await fetchUserData(true);
+            if (success) {
+              console.log("Data refreshed successfully after workout");
+              setLoading(false);
+              await AsyncStorage.removeItem("workout_started_at");
+              return;
+            }
           }
 
           // Normal refresh flow
@@ -238,22 +382,21 @@ export default function HomeScreen() {
             return;
           }
 
-          // Basic refresh on focus
+          // Basic refresh on focus - ALWAYS fetch user data when screen is focused
           await fetchUserData();
         } catch (error) {
           console.error("Error checking refresh flag:", error);
+        } finally {
+          // Ensure loading is set to false
+          setLoading(false);
         }
       };
 
-      // Check when screen comes into focus
       checkRefreshFlag();
-
-      // No cleanup needed for useFocusEffect
-      return () => {};
     }, [])
   );
 
-  // Load cached profile picture
+  // Load profile picture
   useEffect(() => {
     const loadProfilePicture = async () => {
       try {
@@ -279,10 +422,11 @@ export default function HomeScreen() {
     loadProfilePicture();
   }, []);
 
+  // Handle start workout button
   const handleStartWorkout = async () => {
     try {
-      // Navigate to workout library without updating stats
-      // Stats will only be updated when workout is actually completed
+      // Mark timestamp before workout starts to detect completion later
+      await AsyncStorage.setItem("workout_started_at", Date.now().toString());
       router.push("/library");
     } catch (error) {
       console.error("Error starting workout:", error);
@@ -290,9 +434,22 @@ export default function HomeScreen() {
     }
   };
 
-  const fetchUserData = async () => {
+  // Fetch user data
+  const fetchUserData = async (forceCacheRefresh = false) => {
     try {
       setError(null);
+
+      // For immediate updates after workouts, prioritize cache refresh
+      if (forceCacheRefresh) {
+        console.log("Force cache refresh requested, prioritizing local data");
+        // Clear any existing flags
+        await AsyncStorage.removeItem("FORCE_REFRESH_HOME");
+        const cacheRefreshed = await fetchAccurateProgressData();
+        if (cacheRefreshed) {
+          console.log("Successfully refreshed from cache");
+          return true;
+        }
+      }
 
       // Check for emergency flags first
       const emergencyFix = await AsyncStorage.getItem("EMERGENCY_FIX_REQUIRED");
@@ -411,7 +568,7 @@ export default function HomeScreen() {
       }
 
       // Format recent workouts for display
-      const recentActivities = recentWorkouts
+      const recentActivities: Activity[] = recentWorkouts
         ? recentWorkouts.map((workout) => {
             // Calculate how long ago the workout was completed
             const completedDate = workout.completed_at
@@ -436,7 +593,7 @@ export default function HomeScreen() {
               time: timeAgo,
             };
           })
-        : defaultUserData.recentActivities;
+        : [];
 
       // Update avatar URL if available from profile
       if (profile?.avatar_url) {
@@ -476,10 +633,7 @@ export default function HomeScreen() {
           ...dashboardData.todaysWorkout,
           level: "beginner",
         },
-        recentActivities:
-          recentActivities.length > 0
-            ? recentActivities
-            : defaultUserData.recentActivities,
+        recentActivities: recentActivities.length > 0 ? recentActivities : [],
       });
     } catch (err) {
       console.error("Error fetching user data:", err);
@@ -489,7 +643,7 @@ export default function HomeScreen() {
     return true;
   };
 
-  // Helper function to format time ago
+  // Format time ago
   const formatTimeAgo = (date: Date) => {
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
@@ -515,115 +669,11 @@ export default function HomeScreen() {
     }
   };
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-
-    // Reset animations with more subtle offsets for a professional look
-    headerAnim.setValue(-20);
-    progressAnim.setValue(-25);
-    actionsAnim.setValue(-30);
-    workoutAnim.setValue(-35);
-    activitiesAnim.setValue(-40);
-
-    try {
-      // Show a short delay for better UX even if data loads quickly
-      await Promise.all([
-        fetchUserData(),
-        new Promise((resolve) => setTimeout(resolve, 1200)), // Slightly shorter animation time
-      ]);
-    } catch (error) {
-      console.error("Error refreshing data:", error);
-    } finally {
-      setRefreshing(false);
-
-      // More professional staggered animation with tighter timing
-      Animated.stagger(120, [
-        Animated.timing(headerAnim, {
-          toValue: 0,
-          duration: 350,
-          useNativeDriver: true,
-        }),
-        Animated.timing(progressAnim, {
-          toValue: 0,
-          duration: 350,
-          useNativeDriver: true,
-        }),
-        Animated.timing(actionsAnim, {
-          toValue: 0,
-          duration: 350,
-          useNativeDriver: true,
-        }),
-        Animated.timing(workoutAnim, {
-          toValue: 0,
-          duration: 350,
-          useNativeDriver: true,
-        }),
-        Animated.timing(activitiesAnim, {
-          toValue: 0,
-          duration: 350,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-  }, [headerAnim, progressAnim, actionsAnim, workoutAnim, activitiesAnim]);
-
-  // Initial data fetch
-  useEffect(() => {
-    setLoading(true);
-
-    // Define a function to handle the initial data loading
-    const loadInitialData = async () => {
-      try {
-        // First check if there was a recent workout completion
-        const lastCompletion = await AsyncStorage.getItem(
-          "last_workout_completion"
-        );
-        const now = Date.now();
-        const lastCompletionTime = lastCompletion
-          ? new Date(lastCompletion).getTime()
-          : 0;
-        const timeSinceCompletion = now - lastCompletionTime;
-
-        // If a workout was completed in the last 5 minutes, prioritize emergency refresh
-        if (lastCompletion && timeSinceCompletion < 5 * 60 * 1000) {
-          console.log(
-            "Recent workout completion detected, prioritizing emergency refresh"
-          );
-          const emergencyFixDone = await performEmergencyRefresh();
-          if (emergencyFixDone) {
-            console.log("Emergency fix applied for recent workout");
-            setLoading(false);
-            return;
-          }
-        }
-
-        // Check if we need to reset progress for a new day
-        await checkAndResetDailyProgress();
-
-        // Try to fetch accurate progress data from AsyncStorage first
-        const accurateDataLoaded = await fetchAccurateProgressData();
-        if (!accurateDataLoaded) {
-          // If no accurate data in AsyncStorage, fall back to fetching from database
-          await fetchUserData();
-        }
-      } catch (error) {
-        console.error("Error loading initial data:", error);
-        // Attempt to fetch user data as fallback
-        await fetchUserData();
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    // Execute the data loading function
-    loadInitialData();
-  }, []);
-
-  // Function to check if progress needs to be reset for a new day
+  // Check and reset daily progress function
   const checkAndResetDailyProgress = async () => {
     try {
       const user = await getUser();
-      if (!user) return;
+      if (!user) return false;
 
       // Get the current date in YYYY-MM-DD format
       const today = new Date().toISOString().split("T")[0];
@@ -653,48 +703,114 @@ export default function HomeScreen() {
     }
   };
 
+  // Load initial data
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        // First check if there was a recent workout completion
+        const lastCompletion = await AsyncStorage.getItem(
+          "last_workout_completion"
+        );
+        const now = Date.now();
+        const lastCompletionTime = lastCompletion
+          ? new Date(lastCompletion).getTime()
+          : 0;
+        const timeSinceCompletion = now - lastCompletionTime;
+
+        // If a workout was completed in the last 1 minute, prioritize emergency refresh
+        if (lastCompletion && timeSinceCompletion < 60 * 1000) {
+          console.log(
+            "Recent workout completion detected, prioritizing emergency refresh"
+          );
+          const emergencyFixDone = await performEmergencyRefresh();
+          if (emergencyFixDone) {
+            console.log("Emergency fix applied for recent workout");
+            setLoading(false);
+            return;
+          }
+        }
+
+        // Check if we need to reset progress for a new day
+        await checkAndResetDailyProgress();
+
+        // Try to fetch accurate progress data from AsyncStorage first
+        const accurateDataLoaded = await fetchAccurateProgressData();
+        if (!accurateDataLoaded) {
+          // If no accurate data in AsyncStorage, fall back to fetching from database
+          await fetchUserData();
+        }
+      } catch (error) {
+        console.error("Error loading initial data:", error);
+        // Attempt to fetch user data as fallback
+        await fetchUserData();
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadInitialData();
+
+    // Run animations
+    Animated.stagger(100, [
+      Animated.spring(headerAnim, {
+        toValue: 0,
+        friction: 8,
+        tension: 40,
+        useNativeDriver: true,
+      }),
+      Animated.spring(progressAnim, {
+        toValue: 0,
+        friction: 8,
+        tension: 40,
+        useNativeDriver: true,
+      }),
+      Animated.spring(actionsAnim, {
+        toValue: 0,
+        friction: 8,
+        tension: 40,
+        useNativeDriver: true,
+      }),
+      Animated.spring(workoutAnim, {
+        toValue: 0,
+        friction: 8,
+        tension: 40,
+        useNativeDriver: true,
+      }),
+      Animated.spring(activitiesAnim, {
+        toValue: 0,
+        friction: 8,
+        tension: 40,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  // Trigger check and reset daily progress
+  useEffect(() => {
+    checkAndResetDailyProgress();
+  }, []);
+
+  // Get activity icon
   const getActivityIcon = (type: "workout" | "run" | "cardio" | string) => {
     switch (type) {
       case "workout":
         return (
-          <View
-            style={{ backgroundColor: isDarkMode ? "#312E81" : "#E0E7FF" }}
-            className="p-3 rounded-xl"
-          >
-            <Activity size={22} color={isDarkMode ? "#818CF8" : "#8B5CF6"} />
-          </View>
+          <Activity size={22} color={isDarkMode ? "#818CF8" : "#8B5CF6"} />
         );
       case "run":
         return (
-          <View
-            style={{ backgroundColor: isDarkMode ? "#1E3A8A" : "#DBEAFE" }}
-            className="p-3 rounded-xl"
-          >
-            <Footprints size={22} color={isDarkMode ? "#60A5FA" : "#3B82F6"} />
-          </View>
+          <Footprints size={22} color={isDarkMode ? "#60A5FA" : "#3B82F6"} />
         );
       case "cardio":
-        return (
-          <View
-            style={{ backgroundColor: isDarkMode ? "#831843" : "#FCE7F3" }}
-            className="p-3 rounded-xl"
-          >
-            <Flame size={22} color={isDarkMode ? "#F472B6" : "#EC4899"} />
-          </View>
-        );
+        return <Flame size={22} color={isDarkMode ? "#F472B6" : "#EC4899"} />;
       default:
         return (
-          <View
-            style={{ backgroundColor: isDarkMode ? "#111827" : "#F3F4F6" }}
-            className="p-3 rounded-xl"
-          >
-            <Activity size={22} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
-          </View>
+          <Activity size={22} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
         );
     }
   };
 
-  // Function to fetch accurate progress data from AsyncStorage
+  // Fetch accurate progress data
   const fetchAccurateProgressData = async () => {
     try {
       console.log("Fetching accurate progress data from AsyncStorage");
@@ -864,6 +980,25 @@ export default function HomeScreen() {
     }
   };
 
+  // Card Shadow style by platform
+  const cardShadow = Platform.select({
+    ios: {
+      shadowColor: isDarkMode ? "#000" : "#000",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDarkMode ? 0.3 : 0.1,
+      shadowRadius: 8,
+    },
+    android: {
+      elevation: 4,
+    },
+    default: {
+      shadowColor: isDarkMode ? "#000" : "#000",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDarkMode ? 0.3 : 0.1,
+      shadowRadius: 8,
+    },
+  });
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
       <Stack.Screen
@@ -873,10 +1008,9 @@ export default function HomeScreen() {
       />
       <StatusBar
         barStyle={isDarkMode ? "light-content" : "dark-content"}
-        backgroundColor={colors.background}
+        backgroundColor="transparent"
+        translucent
       />
-
-      {/* Background Elements - Removed */}
 
       <View className="flex-1">
         {loading ? (
@@ -895,38 +1029,42 @@ export default function HomeScreen() {
           </View>
         ) : (
           <>
-            {/* Top spacer */}
-            <View className="h-6" />
+            {/* Status bar spacer */}
+            <View style={{ height: StatusBar.currentHeight || 0 }} />
 
             {/* Header with Welcome Back message */}
             <Animated.View
               style={{
                 paddingHorizontal: horizontalPadding,
-                paddingTop: 32,
-                paddingBottom: 12,
+                paddingTop: 20,
+                paddingBottom: 16,
                 transform: [{ translateY: headerAnim }],
+                zIndex: 10,
               }}
               className="flex-row justify-between items-center"
             >
               <View className="flex-row items-center">
-                <Image
-                  source={{
-                    uri:
-                      avatarUrl ||
-                      "https://randomuser.me/api/portraits/men/32.jpg",
-                  }}
-                  className="w-10 h-10 rounded-full mr-3"
-                />
-                <View>
+                <View className="rounded-full overflow-hidden border-2 border-indigo-200 dark:border-indigo-900">
+                  <Image
+                    source={{
+                      uri:
+                        avatarUrl ||
+                        "https://randomuser.me/api/portraits/men/32.jpg",
+                    }}
+                    className="w-12 h-12"
+                    style={{ borderRadius: 24 }}
+                  />
+                </View>
+                <View className="ml-3">
                   <Text
                     style={{ color: colors.secondaryText }}
-                    className="text-sm"
+                    className="text-sm font-medium"
                   >
                     Welcome back
                   </Text>
                   <Text
                     style={{ color: colors.text }}
-                    className="text-xl font-bold mb-1"
+                    className="text-xl font-bold"
                   >
                     {userData.username}
                   </Text>
@@ -934,18 +1072,26 @@ export default function HomeScreen() {
               </View>
               <TouchableOpacity className="p-2">
                 <View
-                  style={{ backgroundColor: colors.card }}
-                  className="rounded-full p-2 shadow-sm"
+                  style={{
+                    backgroundColor: colors.card,
+                    ...cardShadow,
+                  }}
+                  className="rounded-full p-3"
                 >
-                  <Bell size={20} color={colors.secondaryText} />
+                  <Bell size={20} color={colors.accent} />
                 </View>
               </TouchableOpacity>
             </Animated.View>
 
-            <ScrollView
+            <Animated.ScrollView
               className="flex-1 pb-20"
-              style={{ paddingHorizontal: horizontalPadding }}
+              contentContainerStyle={{ paddingHorizontal: horizontalPadding }}
               showsVerticalScrollIndicator={false}
+              scrollEventThrottle={16}
+              onScroll={Animated.event(
+                [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+                { useNativeDriver: true }
+              )}
               refreshControl={
                 <RefreshControl
                   refreshing={refreshing}
@@ -961,13 +1107,21 @@ export default function HomeScreen() {
               {/* Daily Progress Card */}
               <Animated.View
                 style={{
-                  backgroundColor: colors.card,
-                  transform: [{ translateY: progressAnim }],
-                  borderRadius: 24,
-                  shadowOpacity: 0.1,
-                  shadowRadius: 10,
+                  transform: [
+                    { translateY: progressAnim },
+                    {
+                      translateY: scrollY.interpolate({
+                        inputRange: [0, 100],
+                        outputRange: [0, -20],
+                        extrapolate: "clamp",
+                      }),
+                    },
+                  ],
+                  marginTop: 10,
                   marginBottom: 24,
+                  borderRadius: 24,
                   overflow: "hidden",
+                  ...cardShadow,
                 }}
               >
                 <DailyProgressSummary
@@ -988,136 +1142,80 @@ export default function HomeScreen() {
               <Animated.View
                 className="flex-row justify-between mb-6"
                 style={{
-                  transform: [{ translateY: actionsAnim }],
+                  transform: [
+                    { translateY: actionsAnim },
+                    {
+                      translateY: scrollY.interpolate({
+                        inputRange: [0, 150],
+                        outputRange: [0, -15],
+                        extrapolate: "clamp",
+                      }),
+                    },
+                  ],
                 }}
               >
                 <TouchableOpacity
                   style={{ width: buttonWidth }}
-                  className="bg-indigo-500 rounded-2xl shadow-sm h-20 flex-row items-center justify-center"
                   onPress={handleStartWorkout}
+                  activeOpacity={0.8}
                 >
-                  <PlayCircle
-                    size={24}
-                    color="#FFFFFF"
-                    style={{ marginRight: iconSpacing }}
-                  />
-                  <Text className="text-white font-semibold text-base">
-                    Start Workout
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={{
-                    width: buttonWidth,
-                    backgroundColor: colors.card,
-                    borderRadius: 16,
-                    height: 80,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    shadowOpacity: 0.1,
-                    shadowRadius: 10,
-                  }}
-                >
-                  <Footprints
-                    size={24}
-                    color={colors.accent}
-                    style={{ marginRight: iconSpacing }}
-                  />
-                  <Text
-                    style={{ color: colors.accent }}
-                    className="font-semibold text-base"
+                  <LinearGradient
+                    colors={
+                      isDarkMode
+                        ? ["#4F46E5", "#7C3AED"]
+                        : ["#6366F1", "#4F46E5"]
+                    }
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{
+                      borderRadius: 16,
+                      height: 80,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      ...cardShadow,
+                    }}
                   >
-                    Track Run
-                  </Text>
-                </TouchableOpacity>
-              </Animated.View>
-
-              {/* Programs and Nutrition Buttons */}
-              <Animated.View
-                className="flex-row justify-between mb-6"
-                style={{
-                  transform: [{ translateY: actionsAnim }],
-                }}
-              >
-                <TouchableOpacity
-                  style={{
-                    width: buttonWidth,
-                    backgroundColor: colors.card,
-                    borderRadius: 16,
-                    height: 80,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    shadowOpacity: 0.1,
-                    shadowRadius: 10,
-                  }}
-                >
-                  <CalendarDays
-                    size={24}
-                    color={colors.accent}
-                    style={{ marginRight: iconSpacing }}
-                  />
-                  <Text
-                    style={{ color: colors.accent }}
-                    className="font-semibold text-base"
-                  >
-                    Programs
-                  </Text>
+                    <PlayCircle
+                      size={24}
+                      color="#FFFFFF"
+                      style={{ marginRight: iconSpacing }}
+                    />
+                    <Text className="text-white font-semibold text-base">
+                      Start Workout
+                    </Text>
+                  </LinearGradient>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   onPress={() => router.push("/nutrition")}
-                  style={{
-                    width: buttonWidth,
-                    backgroundColor: colors.card,
-                    borderRadius: 16,
-                    height: 80,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    shadowOpacity: 0.1,
-                    shadowRadius: 10,
-                  }}
+                  style={{ width: buttonWidth }}
+                  activeOpacity={0.8}
                 >
-                  <Apple
-                    size={24}
-                    color={isDarkMode ? "#34D399" : "#10B981"}
-                    style={{ marginRight: iconSpacing }}
-                  />
-                  <Text
-                    style={{ color: isDarkMode ? "#34D399" : "#10B981" }}
-                    className="font-semibold text-base"
+                  <View
+                    style={{
+                      backgroundColor: colors.card,
+                      borderRadius: 16,
+                      height: 80,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      ...cardShadow,
+                    }}
                   >
-                    Nutrition
-                  </Text>
+                    <Apple
+                      size={24}
+                      color={isDarkMode ? "#34D399" : "#10B981"}
+                      style={{ marginRight: iconSpacing }}
+                    />
+                    <Text
+                      style={{ color: isDarkMode ? "#34D399" : "#10B981" }}
+                      className="font-semibold text-base"
+                    >
+                      Nutrition
+                    </Text>
+                  </View>
                 </TouchableOpacity>
-              </Animated.View>
-
-              {/* Today's Workout Section */}
-              <Animated.View
-                style={{
-                  transform: [{ translateY: workoutAnim }],
-                  marginBottom: 24,
-                }}
-              >
-                <Text
-                  style={{ color: colors.text }}
-                  className="font-bold text-lg mb-4"
-                >
-                  Today's Workout
-                </Text>
-                <TodaysWorkoutCard
-                  id={userData.todaysWorkout.id}
-                  title={userData.todaysWorkout.title}
-                  duration={userData.todaysWorkout.duration}
-                  imageUrl={userData.todaysWorkout.imageUrl}
-                  onStart={async () => {
-                    // After starting workout and updating stats, refresh the UI
-                    await fetchUserData();
-                    router.push(`/workout/${userData.todaysWorkout.id}`);
-                  }}
-                />
               </Animated.View>
 
               {/* Recent Activities Section */}
@@ -1127,78 +1225,162 @@ export default function HomeScreen() {
                   transform: [{ translateY: activitiesAnim }],
                 }}
               >
-                <Text
-                  style={{ color: colors.text }}
-                  className="font-bold text-lg mb-4"
-                >
-                  Recent Activities
-                </Text>
-                <View
-                  style={{ backgroundColor: colors.card }}
-                  className="rounded-2xl shadow-sm p-4"
-                >
-                  {userData.recentActivities.map((activity, index) => (
-                    <View
-                      key={activity.id}
-                      style={{
-                        flexDirection: "row",
-                        paddingVertical: 12,
-                        borderBottomWidth:
-                          index < userData.recentActivities.length - 1 ? 1 : 0,
-                        borderBottomColor: isDarkMode
-                          ? colors.border
-                          : "#F3F4F6",
-                      }}
+                <View className="flex-row justify-between items-center mb-4">
+                  <Text
+                    style={{ color: colors.text }}
+                    className="font-bold text-lg"
+                  >
+                    Recent Activities
+                  </Text>
+                  <TouchableOpacity activeOpacity={0.8}>
+                    <Text
+                      style={{ color: colors.accent }}
+                      className="text-sm font-medium"
                     >
-                      {getActivityIcon(activity.type)}
-                      <View className="ml-3 flex-1">
-                        <Text
-                          style={{ color: colors.text }}
-                          className="font-bold"
+                      See All
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <View
+                  style={{
+                    backgroundColor: colors.card,
+                    borderRadius: 20,
+                    ...cardShadow,
+                  }}
+                  className="p-4"
+                >
+                  {userData.recentActivities.length > 0 ? (
+                    userData.recentActivities.map((activity, index) => (
+                      <View
+                        key={activity.id}
+                        style={{
+                          flexDirection: "row",
+                          paddingVertical: 14,
+                          borderBottomWidth:
+                            index < userData.recentActivities.length - 1
+                              ? 1
+                              : 0,
+                          borderBottomColor: isDarkMode
+                            ? "rgba(255, 255, 255, 0.1)"
+                            : "rgba(0, 0, 0, 0.05)",
+                        }}
+                      >
+                        <View
+                          style={{
+                            width: 42,
+                            height: 42,
+                            borderRadius: 21,
+                            backgroundColor: isDarkMode
+                              ? "rgba(79, 70, 229, 0.2)"
+                              : "rgba(79, 70, 229, 0.1)",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
                         >
-                          {activity.title}
-                        </Text>
-                        <View className="flex-row mt-1">
-                          {activity.duration && (
-                            <Text
-                              style={{ color: colors.secondaryText }}
-                              className="text-xs mr-3"
-                            >
-                              {activity.duration}
-                            </Text>
-                          )}
-                          {activity.distance && (
-                            <Text
-                              style={{ color: colors.secondaryText }}
-                              className="text-xs mr-3"
-                            >
-                              {activity.distance}
-                            </Text>
-                          )}
-                          {activity.calories && (
-                            <Text
-                              style={{ color: colors.secondaryText }}
-                              className="text-xs"
-                            >
-                              {activity.calories} kcal
-                            </Text>
-                          )}
+                          {getActivityIcon(activity.type)}
                         </View>
-                        <Text
-                          style={{ color: colors.secondaryText }}
-                          className="text-xs mt-1"
+                        <View style={{ flex: 1, marginLeft: 12 }}>
+                          <Text
+                            style={{ color: colors.text }}
+                            className="font-bold"
+                          >
+                            {activity.title}
+                          </Text>
+                          <View className="flex-row mt-1">
+                            {activity.duration && (
+                              <View className="flex-row items-center mr-3">
+                                <Clock
+                                  size={12}
+                                  color={colors.secondaryText}
+                                  style={{ marginRight: 4 }}
+                                />
+                                <Text
+                                  style={{ color: colors.secondaryText }}
+                                  className="text-xs"
+                                >
+                                  {activity.duration}
+                                </Text>
+                              </View>
+                            )}
+                            {activity.distance && (
+                              <View className="flex-row items-center mr-3">
+                                <Footprints
+                                  size={12}
+                                  color={colors.secondaryText}
+                                  style={{ marginRight: 4 }}
+                                />
+                                <Text
+                                  style={{ color: colors.secondaryText }}
+                                  className="text-xs"
+                                >
+                                  {activity.distance}
+                                </Text>
+                              </View>
+                            )}
+                            {activity.calories && (
+                              <View className="flex-row items-center">
+                                <Flame
+                                  size={12}
+                                  color={colors.secondaryText}
+                                  style={{ marginRight: 4 }}
+                                />
+                                <Text
+                                  style={{ color: colors.secondaryText }}
+                                  className="text-xs"
+                                >
+                                  {activity.calories} kcal
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text
+                            style={{ color: colors.secondaryText }}
+                            className="text-xs mt-1"
+                          >
+                            {activity.time}
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          style={{
+                            alignSelf: "center",
+                            padding: 10,
+                          }}
                         >
-                          {activity.time}
-                        </Text>
+                          <TrendingUp size={16} color={colors.secondaryText} />
+                        </TouchableOpacity>
                       </View>
+                    ))
+                  ) : (
+                    <View style={{ alignItems: "center", paddingVertical: 30 }}>
+                      <Activity
+                        size={40}
+                        color={
+                          isDarkMode
+                            ? "rgba(156, 163, 175, 0.5)"
+                            : "rgba(156, 163, 175, 0.7)"
+                        }
+                        style={{ marginBottom: 12 }}
+                      />
+                      <Text
+                        style={{ color: colors.secondaryText }}
+                        className="text-base font-medium text-center"
+                      >
+                        No activities yet
+                      </Text>
+                      <Text
+                        style={{ color: colors.secondaryText, opacity: 0.7 }}
+                        className="text-sm text-center mt-1"
+                      >
+                        Complete a workout to see your activities here
+                      </Text>
                     </View>
-                  ))}
+                  )}
                 </View>
               </Animated.View>
 
               {/* Extra spacer to ensure scrollability and account for navbar */}
-              <View style={{ height: 80 }} />
-            </ScrollView>
+              <View style={{ height: 90 }} />
+            </Animated.ScrollView>
           </>
         )}
 
@@ -1206,7 +1388,7 @@ export default function HomeScreen() {
           <BottomNavigation activeTab="home" />
         </View>
 
-        {/* Toast notification */}
+        {/* Existing Toast component */}
         <Toast
           message={toast.message}
           type={toast.type}

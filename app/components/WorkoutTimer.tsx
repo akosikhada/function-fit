@@ -22,9 +22,10 @@ const WorkoutTimer = ({
   onToggle,
 }: WorkoutTimerProps) => {
   // Ensure duration is a valid number
-  const validDuration = typeof duration === 'number' && !isNaN(duration) && duration > 0 
-    ? Math.floor(duration) // Ensure it's an integer
-    : 45; // Default to 45 seconds if invalid
+  const validDuration =
+    typeof duration === "number" && !isNaN(duration) && duration > 0
+      ? Math.floor(duration) // Ensure it's an integer
+      : 45; // Default to 45 seconds if invalid
 
   const [timeLeft, setTimeLeft] = useState(validDuration);
   const [isPaused, setIsPaused] = useState(!isActive);
@@ -41,10 +42,11 @@ const WorkoutTimer = ({
 
   useEffect(() => {
     // Reset when duration changes
-    const newDur = typeof duration === 'number' && !isNaN(duration) && duration > 0 
-      ? Math.floor(duration) 
-      : 45;
-    
+    const newDur =
+      typeof duration === "number" && !isNaN(duration) && duration > 0
+        ? Math.floor(duration)
+        : 45;
+
     // Update animation and time left
     animatedValue.setValue(newDur);
     setTimeLeft(newDur);
@@ -106,7 +108,9 @@ const WorkoutTimer = ({
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    return `${mins.toString().padStart(2, "0")}:${secs
+      .toString()
+      .padStart(2, "0")}`;
   };
 
   return (
@@ -115,26 +119,26 @@ const WorkoutTimer = ({
       <View className="relative w-64 h-64 items-center justify-center">
         {/* Background Circle */}
         <View className="absolute w-64 h-64 rounded-full bg-indigo-100" />
-        
+
         {/* Animated Progress Circle */}
         <Animated.View
           style={{
-            position: 'absolute',
+            position: "absolute",
             width: 200,
             height: 200,
             borderRadius: 100,
             borderWidth: 8,
-            borderColor: '#4F46E5',
+            borderColor: "#4F46E5",
             opacity: 0.8,
             transform: [
               {
                 rotate: animatedValue.interpolate({
                   inputRange: [0, validDuration],
-                  outputRange: ['0deg', '360deg'],
-                  extrapolate: 'clamp',
-                })
-              }
-            ]
+                  outputRange: ["0deg", "360deg"],
+                  extrapolate: "clamp",
+                }),
+              },
+            ],
           }}
         />
 
@@ -144,11 +148,12 @@ const WorkoutTimer = ({
         </Text>
       </View>
 
-      {/* Controls - Now moved below the timer circle */}
-      <View className="flex-row justify-center space-x-12 mt-6">
+      {/* Controls - Properly centered with equal spacing */}
+      <View className="flex-row justify-center items-center mt-6 w-full">
         <TouchableOpacity
+          activeOpacity={0.8}
           onPress={handleToggle}
-          className="bg-white rounded-full w-14 h-14 items-center justify-center shadow-md ml-20"
+          className="bg-white rounded-full w-14 h-14 items-center justify-center shadow-md mx-6"
         >
           {isPaused ? (
             <Play size={28} color="#4F46E5" />
@@ -158,8 +163,9 @@ const WorkoutTimer = ({
         </TouchableOpacity>
 
         <TouchableOpacity
+          activeOpacity={0.8}
           onPress={handleSkip}
-          className="bg-white rounded-full w-14 h-14 items-center justify-center shadow-md ml-5"
+          className="bg-white rounded-full w-14 h-14 items-center justify-center shadow-md mx-6"
         >
           <SkipForward size={28} color="#4F46E5" />
         </TouchableOpacity>
