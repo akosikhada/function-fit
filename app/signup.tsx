@@ -274,6 +274,7 @@ export default function SignUpScreen() {
                 <TouchableOpacity
                   style={styles.toggleIcon}
                   onPress={() => setShowPassword(!showPassword)}
+                  activeOpacity={0.8}
                 >
                   {showPassword ? (
                     <EyeOff size={18} color="#6366f1" />
@@ -302,6 +303,7 @@ export default function SignUpScreen() {
                 <TouchableOpacity
                   style={styles.toggleIcon}
                   onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                  activeOpacity={0.8}
                 >
                   {showConfirmPassword ? (
                     <EyeOff size={18} color="#6366f1" />
@@ -317,7 +319,7 @@ export default function SignUpScreen() {
               <TouchableOpacity
                 onPress={() => setAgreeToTerms(!agreeToTerms)}
                 style={styles.checkboxContainer}
-                activeOpacity={0.7}
+                activeOpacity={0.8}
               >
                 <View
                   style={[
@@ -361,7 +363,7 @@ export default function SignUpScreen() {
           {/* Sign In Link */}
           <View style={styles.signInContainer}>
             <Text style={styles.signInText}>Already have an account? </Text>
-            <TouchableOpacity onPress={navigateToSignIn}>
+            <TouchableOpacity onPress={navigateToSignIn} activeOpacity={0.8}>
               <Text style={styles.signInLink}>Sign In</Text>
             </TouchableOpacity>
           </View>
@@ -503,7 +505,6 @@ const styles = StyleSheet.create({
   },
   checkboxContainer: {
     marginRight: 10,
-    marginTop: 2,
   },
   checkbox: {
     width: 18,

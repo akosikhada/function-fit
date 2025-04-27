@@ -277,16 +277,37 @@ export default function WorkoutLibrary() {
             elevation: 2,
           }}
         >
-          <Text
-            className="font-bold"
-            style={{
-              color: colors.text,
-              fontSize: isSmallDevice ? 22 : 24,
-              letterSpacing: -0.7,
-            }}
-          >
-            Workout Library
-          </Text>
+          <View className="flex-row items-center">
+            <TouchableOpacity
+              onPress={() => router.push("/plan")}
+              className="p-2 mr-3 rounded-full"
+              style={{
+                backgroundColor: isDarkMode
+                  ? "rgba(139, 92, 246, 0.15)"
+                  : "rgba(99, 102, 241, 0.08)",
+                width: 40,
+                height: 40,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+              activeOpacity={0.8}
+            >
+              <ArrowLeft
+                size={isSmallDevice ? 20 : 22}
+                color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+              />
+            </TouchableOpacity>
+            <Text
+              className="font-bold"
+              style={{
+                color: colors.text,
+                fontSize: isSmallDevice ? 22 : 24,
+                letterSpacing: -0.7,
+              }}
+            >
+              Workout Library
+            </Text>
+          </View>
         </View>
 
         {/* Loading State */}

@@ -22,6 +22,7 @@ export const supabase = createClient<Database>(
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false,
+      flowType: "pkce",
     },
   }
 );
@@ -39,12 +40,61 @@ export const supabaseAdmin = createClient(
   }
 );
 
+// Helper function to handle token refresh errors
+export const refreshSession = async () => {
+  try {
+    const { data, error } = await supabase.auth.refreshSession();
+
+    if (error) {
+      console.log("Error refreshing session:", error.message);
+      // If refresh fails, clear the session and force re-authentication
+      await supabase.auth.signOut({ scope: "local" });
+      return false;
+    }
+
+    if (data.session) {
+      console.log("Session refreshed successfully");
+      return true;
+    }
+
+    return false;
+  } catch (e) {
+    console.error("Exception during session refresh:", e);
+    return false;
+  }
+};
+
 // Helper functions for common Supabase operations
 export const getUser = async () => {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return user;
+  try {
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser();
+
+    if (error) {
+      if (error.message.includes("Invalid Refresh Token")) {
+        console.log("Invalid refresh token detected, attempting refresh");
+        const refreshed = await refreshSession();
+        if (refreshed) {
+          // Retry getting user after successful refresh
+          const {
+            data: { user: refreshedUser },
+          } = await supabase.auth.getUser();
+          return refreshedUser;
+        }
+        // If refresh failed, return null to trigger re-authentication
+        return null;
+      }
+      console.error("Error getting user:", error);
+      return null;
+    }
+
+    return user;
+  } catch (e) {
+    console.error("Exception in getUser:", e);
+    return null;
+  }
 };
 
 export const getUserProfile = async (userId: string) => {

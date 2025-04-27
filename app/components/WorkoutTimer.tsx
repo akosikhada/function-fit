@@ -148,11 +148,12 @@ const WorkoutTimer = ({
         </Text>
       </View>
 
-      {/* Controls - Now moved below the timer circle */}
-      <View className="flex-row justify-center space-x-12 mt-6">
+      {/* Controls - Properly centered with equal spacing */}
+      <View className="flex-row justify-center items-center mt-6 w-full">
         <TouchableOpacity
+          activeOpacity={0.8}
           onPress={handleToggle}
-          className="bg-white rounded-full w-14 h-14 items-center justify-center shadow-md ml-20"
+          className="bg-white rounded-full w-14 h-14 items-center justify-center shadow-md mx-6"
         >
           {isPaused ? (
             <Play size={28} color="#4F46E5" />
@@ -162,8 +163,9 @@ const WorkoutTimer = ({
         </TouchableOpacity>
 
         <TouchableOpacity
+          activeOpacity={0.8}
           onPress={handleSkip}
-          className="bg-white rounded-full w-14 h-14 items-center justify-center shadow-md ml-5"
+          className="bg-white rounded-full w-14 h-14 items-center justify-center shadow-md mx-6"
         >
           <SkipForward size={28} color="#4F46E5" />
         </TouchableOpacity>

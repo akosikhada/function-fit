@@ -229,12 +229,82 @@ export default function HomeScreen() {
     }
   };
 
+  // Add this helper function to directly update UI state after workout completion
+  const updateWorkoutStatsImmediate = async (userId: string) => {
+    try {
+      console.log("🚀 Attempting immediate stats update");
+      // Get today's date in YYYY-MM-DD format
+      const today = new Date().toISOString().split("T")[0];
+      const statsKey = `user_stats_${userId}_${today}`;
+
+      // Get the cached stats
+      const cachedStatsStr = await AsyncStorage.getItem(statsKey);
+      if (!cachedStatsStr) {
+        console.log("No cached stats found for immediate update");
+        return false;
+      }
+
+      const cachedStats = JSON.parse(cachedStatsStr);
+      console.log("Found cached stats for immediate update:", cachedStats);
+
+      // Update the UI directly with cached values
+      const workoutCount = Math.min(cachedStats.workouts_completed || 0, 10);
+      const caloriesCount = cachedStats.calories || 0;
+
+      // Calculate progress percentages
+      const workoutProgress = Math.min(
+        Math.round((workoutCount / 10) * 100),
+        100
+      );
+      const caloriesProgress = Math.min(
+        Math.round((caloriesCount / 600) * 100),
+        100
+      );
+
+      console.log(
+        `Setting immediate stats: workouts=${workoutCount}, calories=${caloriesCount}`
+      );
+
+      // Update both state objects to ensure consistency
+      setProgressData({
+        ...progressData,
+        workoutValue: `${workoutCount}/10`,
+        workoutProgress: workoutProgress,
+        caloriesValue: String(caloriesCount),
+        caloriesProgress: caloriesProgress,
+      });
+
+      setUserData((prevData) => ({
+        ...prevData,
+        workoutValue: `${workoutCount}/10`,
+        workoutProgress: workoutProgress,
+        caloriesValue: String(caloriesCount),
+        caloriesProgress: caloriesProgress,
+      }));
+
+      // Show success toast
+      setToast({
+        visible: true,
+        message: "Workout stats updated!",
+        type: "success",
+      });
+
+      console.log("Immediate stats update complete");
+      setLoading(false);
+      return true;
+    } catch (e) {
+      console.error("Error in immediate stats update:", e);
+      return false;
+    }
+  };
+
   // Check for refresh flag
   useFocusEffect(
     React.useCallback(() => {
       const checkRefreshFlag = async () => {
         try {
           console.log("Home screen focused - checking for forced refresh");
+          setLoading(true);
 
           // Check if workout was recently completed
           const lastCompletion = await AsyncStorage.getItem(
@@ -245,6 +315,25 @@ export default function HomeScreen() {
             ? new Date(lastCompletion).getTime()
             : 0;
           const timeSinceCompletion = now - lastCompletionTime;
+
+          // If workout was completed very recently (within 30 seconds), do immediate update
+          if (lastCompletion && timeSinceCompletion < 30 * 1000) {
+            console.log(
+              "Very recent workout completion detected, applying immediate update"
+            );
+            const user = await getUser();
+            if (user) {
+              const success = await updateWorkoutStatsImmediate(user.id);
+              if (success) {
+                // Also clear the workout completion flag to avoid redundant updates
+                await AsyncStorage.removeItem("last_workout_completion");
+                await AsyncStorage.removeItem("FORCE_REFRESH_HOME");
+                await AsyncStorage.removeItem("workout_started_at");
+                setLoading(false);
+                return;
+              }
+            }
+          }
 
           // If workout was completed recently (within 1 minute), use force cache refresh
           if (lastCompletion && timeSinceCompletion < 60 * 1000) {

@@ -307,6 +307,7 @@ export default function WelcomeScreen() {
           <Animated.View style={[signInStyle, styles.signInContainer]}>
             <Text style={styles.signInText}>Already have an account?</Text>
             <TouchableOpacity
+              activeOpacity={0.8}
               onPress={handleSignIn}
               style={styles.signInButton}
             >

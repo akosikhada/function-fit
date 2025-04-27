@@ -188,6 +188,7 @@ export default function SignInScreen() {
                 <TouchableOpacity
                   style={styles.toggleIcon}
                   onPress={() => setShowPassword(!showPassword)}
+                  activeOpacity={0.8}
                 >
                   {showPassword ? (
                     <EyeOff size={18} color="#6366f1" />
@@ -232,7 +233,7 @@ export default function SignInScreen() {
           {/* Sign Up Link */}
           <View style={styles.signUpContainer}>
             <Text style={styles.signUpText}>Don't have an account? </Text>
-            <TouchableOpacity onPress={navigateToSignUp}>
+            <TouchableOpacity onPress={navigateToSignUp} activeOpacity={0.8}>
               <Text style={styles.signUpLink}>Sign Up</Text>
             </TouchableOpacity>
           </View>
