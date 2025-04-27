@@ -17,18 +17,36 @@ export const forceWorkoutProgressUpdate = async (
     // Format today's date
     const today = new Date().toISOString().split("T")[0];
 
-    // Create stats object with direct values
+    // Get existing values first
+    const statsKey = `user_stats_${userId}_${today}`;
+    const existingStatsStr = await AsyncStorage.getItem(statsKey);
+    const existingStats = existingStatsStr
+      ? JSON.parse(existingStatsStr)
+      : {
+          calories: 0,
+          workouts_completed: 0,
+          active_minutes: 0,
+          steps: 0,
+        };
+
+    // Update with new values, ensuring we always use the highest value
+    const updatedCalories = Math.max(existingStats.calories || 0, calories);
+    const updatedWorkouts = Math.max(
+      existingStats.workouts_completed || 0,
+      workoutCount
+    );
+
+    // Create stats object with updated values
     const statsObject = {
-      calories: calories,
-      workouts_completed: workoutCount,
-      active_minutes: 30, // Default value
-      steps: 0,
+      calories: updatedCalories,
+      workouts_completed: updatedWorkouts,
+      active_minutes: existingStats.active_minutes || 30, // Default value
+      steps: existingStats.steps || 0,
       emergency_update: true,
       timestamp: new Date().toISOString(),
     };
 
     // Save to AsyncStorage under the standard key
-    const statsKey = `user_stats_${userId}_${today}`;
     await AsyncStorage.setItem(statsKey, JSON.stringify(statsObject));
     console.log(`Saved emergency stats to ${statsKey}:`, statsObject);
 
@@ -47,14 +65,23 @@ export const forceWorkoutProgressUpdate = async (
 
     // Set emergency flags
     await AsyncStorage.setItem("EMERGENCY_FIX_REQUIRED", "true");
-    await AsyncStorage.setItem("WORKOUT_COUNT_OVERRIDE", String(workoutCount));
-    await AsyncStorage.setItem("CALORIES_OVERRIDE", String(calories));
+    await AsyncStorage.setItem(
+      "WORKOUT_COUNT_OVERRIDE",
+      String(updatedWorkouts)
+    );
+    await AsyncStorage.setItem("CALORIES_OVERRIDE", String(updatedCalories));
 
-    // Force refresh flags
+    // Force refresh flags - use explicit timestamps to ensure change is detected
     const timestamp = Date.now().toString();
     await AsyncStorage.setItem("dashboard_needs_refresh", timestamp);
     await AsyncStorage.setItem("FORCE_REFRESH_HOME", timestamp);
     await AsyncStorage.setItem(`workout_completed_${userId}`, timestamp);
+
+    // Store last workout completion time for reference and detection
+    await AsyncStorage.setItem(
+      "last_workout_completion",
+      new Date().toISOString()
+    );
 
     console.log("🚨 EMERGENCY FIX COMPLETE");
     return true;

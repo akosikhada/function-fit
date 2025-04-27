@@ -15,7 +15,15 @@ const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string;
 // Supabase client (standard client with limited permissions)
 export const supabase = createClient<Database>(
   process.env.EXPO_PUBLIC_SUPABASE_URL || "",
-  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || ""
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || "",
+  {
+    auth: {
+      storage: AsyncStorage,
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: false,
+    },
+  }
 );
 
 // Service role client with admin privileges - DO NOT EXPOSE IN CLIENT CODE
@@ -379,7 +387,23 @@ export const getWorkoutById = async (workoutId: string) => {
 
     if (exercisesError) throw exercisesError;
 
-    return { ...workout, exercises };
+    // Deduplicate exercises by ID to prevent tripling issue
+    const uniqueExercisesMap = new Map();
+
+    if (exercises && exercises.length > 0) {
+      exercises.forEach((exercise) => {
+        if (!uniqueExercisesMap.has(exercise.id)) {
+          uniqueExercisesMap.set(exercise.id, exercise);
+        }
+      });
+    }
+
+    const uniqueExercises = Array.from(uniqueExercisesMap.values());
+    console.log(
+      `getWorkoutById: Original exercises: ${exercises.length}, Deduplicated: ${uniqueExercises.length}`
+    );
+
+    return { ...workout, exercises: uniqueExercises };
   } catch (error) {
     console.error(`Error getting workout ${workoutId}:`, error);
     throw error;
@@ -509,26 +533,28 @@ export const completeWorkout = async (
       `Attempting to record workout completion: User ${userId}, Workout ${workoutId}`
     );
 
-    // 1. Log the completed workout - using admin client to bypass RLS
-    const { error: workoutError } = await client.from("user_workouts").insert({
-      user_id: userId,
-      workout_id: workoutId,
-      duration,
-      calories,
-      completed_at: new Date().toISOString(),
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    });
+    // Get today's date in YYYY-MM-DD format
+    const today = new Date().toISOString().split("T")[0];
 
-    if (workoutError) {
-      console.error("Error inserting user_workout record:", workoutError);
-      throw workoutError;
+    // 1. First, create a user_workouts record to track individual workout completion
+    const { data: userWorkout, error: userWorkoutError } = await client
+      .from("user_workouts")
+      .insert({
+        user_id: userId,
+        workout_id: workoutId,
+        completed_at: new Date().toISOString(),
+        duration: Math.max(duration, 0.1), // Ensure duration is positive, minimum 0.1 minutes for testing
+        calories: calories,
+      })
+      .select()
+      .single();
+
+    if (userWorkoutError) {
+      console.error("Error recording workout completion:", userWorkoutError);
+      return { success: false };
     }
 
     // 2. Update user stats for the day
-    const today = new Date().toISOString().split("T")[0];
-    console.log(`Updating user stats for date: ${today}`);
-
     const { data: existingStats, error: statsCheckError } = await client
       .from("user_stats")
       .select("*")
@@ -735,7 +761,8 @@ export const updateUserProfile = async (
 ) => {
   try {
     // Extract fields that go to the users table in Supabase
-    const { username, avatar_url, birthday, gender, height, weight } = updateData;
+    const { username, avatar_url, birthday, gender, height, weight } =
+      updateData;
 
     // For local file URIs (from image picker), use a default avatar with a fixed seed
     // so it stays consistent for the user even after logging in again
@@ -749,44 +776,87 @@ export const updateUserProfile = async (
       )}`;
     }
 
-    // Update the users table - include birthday, gender, height and weight fields
-    const { data, error } = await supabase
-      .from("users")
-      .update({
-        username: username,
-        avatar_url: finalAvatarUrl,
-        birthday: birthday,
-        gender: gender,
-        height: height,
-        weight: weight,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", userId)
-      .select()
-      .single();
+    // Create update object with safe fields first
+    const updateObj: any = {
+      username: username,
+      avatar_url: finalAvatarUrl,
+      updated_at: new Date().toISOString(),
+    };
 
-    if (error) throw error;
+    // Only add optional fields if they exist in the database schema
+    // These will be added through the migration in production
+    try {
+      // Update height and weight which should exist in the schema
+      if (height !== undefined) updateObj.height = height;
+      if (weight !== undefined) updateObj.weight = weight;
 
-    // Only try to update email if it's provided and the auth user data exists
-    if (updateData.email) {
+      // Try to update with just the safe fields
+      const { data, error } = await supabase
+        .from("users")
+        .update(updateObj)
+        .eq("id", userId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Store profile data in AsyncStorage for offline access
       try {
-        const { error: emailError } = await supabase.auth.updateUser({
-          email: updateData.email,
-        });
-
-        if (emailError) {
-          // If email update fails, log the error but don't stop the flow
-          console.error("Error updating email:", emailError);
-          // Throw the error to be handled by the caller
-          throw emailError;
-        }
-      } catch (emailUpdateError) {
-        console.error("Email update failed:", emailUpdateError);
-        throw emailUpdateError;
+        const profileKey = `userProfile-${userId}`;
+        await AsyncStorage.setItem(
+          profileKey,
+          JSON.stringify({
+            ...updateData,
+            avatarUrl: finalAvatarUrl,
+          })
+        );
+      } catch (storageError) {
+        console.error("Failed to cache profile data:", storageError);
+        // Non-fatal error, continue
       }
-    }
 
-    return { data, success: true };
+      // Now try to update with birthday and gender in a separate call
+      // This will work after migration but fail gracefully before
+      if (birthday !== undefined || gender !== undefined) {
+        const extraFields: any = {};
+        if (birthday !== undefined) extraFields.birthday = birthday;
+        if (gender !== undefined) extraFields.gender = gender;
+
+        try {
+          await supabase.from("users").update(extraFields).eq("id", userId);
+        } catch (extraFieldsError: any) {
+          // Log but don't throw - these fields may not exist yet
+          console.log(
+            "Notice: Could not update optional profile fields (birthday/gender):",
+            extraFieldsError.message
+          );
+        }
+      }
+
+      // Only try to update email if it's provided and the auth user data exists
+      if (updateData.email) {
+        try {
+          const { error: emailError } = await supabase.auth.updateUser({
+            email: updateData.email,
+          });
+
+          if (emailError) {
+            // If email update fails, log the error but don't stop the flow
+            console.error("Error updating email:", emailError);
+            // Throw the error to be handled by the caller
+            throw emailError;
+          }
+        } catch (emailUpdateError) {
+          console.error("Email update failed:", emailUpdateError);
+          throw emailUpdateError;
+        }
+      }
+
+      return { data, success: true };
+    } catch (updateError) {
+      console.error("Error updating user data:", updateError);
+      throw updateError;
+    }
   } catch (error) {
     console.error("Error updating user profile:", error);
     throw error;

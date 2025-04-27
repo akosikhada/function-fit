@@ -300,42 +300,45 @@ export default function SettingsScreen() {
     try {
       const today = new Date().toISOString().split("T")[0];
 
-      // Get workout data from Supabase
+      // Get workout data from Supabase - the source of truth for workout counts
       const { data: workoutData, error: workoutError } = await supabase
         .from("user_workouts")
-        .select("id, duration, calories, completed_at") // Add these fields to get complete info
-        .eq("user_id", userId)
-        .order("completed_at", { ascending: false }); // Order by most recent
+        .select("id, duration, calories, completed_at")
+        .eq("user_id", userId);
 
       if (workoutError) throw workoutError;
 
-      // Get latest user_stats directly from database to ensure most accurate count
-      const { data: latestStats, error: statsError } = await supabase
-        .from("user_stats")
-        .select("*")
-        .eq("user_id", userId)
-        .eq("date", today)
-        .maybeSingle();
-
-      if (statsError && statsError.code !== "PGRST116") throw statsError;
-
-      console.log("Settings: Latest user stats from DB:", latestStats);
-
-      // Check AsyncStorage for possibly more recent workout data
+      // Get actual count from workouts table - this is the true count
       let totalWorkouts = workoutData?.length || 0;
+      console.log(
+        `Settings: True workout count from database: ${totalWorkouts}`
+      );
+
+      // Calculate total hours from workout details - use actual duration data
       let totalHours = 0;
       let totalCalories = 0;
 
-      // If we have stats from today in the database, use them as base values
-      if (latestStats) {
-        console.log(
-          `Using latest DB stats: workouts=${latestStats.workouts_completed}, calories=${latestStats.calories}`
+      if (workoutData && workoutData.length > 0) {
+        // Sum up all durations and convert to hours (durations are in minutes)
+        totalHours =
+          workoutData.reduce(
+            (sum, workout) => sum + (Number(workout.duration) || 0),
+            0
+          ) / 60;
+
+        // Format to one decimal place
+        totalHours = parseFloat(totalHours.toFixed(1));
+
+        // Sum up all calories
+        totalCalories = workoutData.reduce(
+          (sum, workout) => sum + (Number(workout.calories) || 0),
+          0
         );
-        totalCalories = latestStats.calories || 0;
       }
 
+      // Check for any additional stats in AsyncStorage
       try {
-        // 1. Check primary stats key
+        // Check primary stats key for today
         const statsKey = `user_stats_${userId}_${today}`;
         const cachedStatsStr = await AsyncStorage.getItem(statsKey);
 
@@ -343,66 +346,24 @@ export default function SettingsScreen() {
           const cachedStats = JSON.parse(cachedStatsStr);
           console.log("Settings: Found cached stats for today:", cachedStats);
 
-          // Use cached workout count if it's higher than what we have from the database
-          if (
-            cachedStats.workouts_completed &&
-            (!latestStats ||
-              cachedStats.workouts_completed > latestStats.workouts_completed)
-          ) {
+          // If the cached calories are higher, use those instead
+          if (cachedStats.calories && cachedStats.calories > totalCalories) {
             console.log(
-              `Using higher workout count from cache: ${cachedStats.workouts_completed}`
-            );
-            // We don't add this to totalWorkouts as it might overlap with workoutData
-          }
-
-          // Use cached calories if it's higher than what we have from the database
-          if (
-            cachedStats.calories &&
-            (!latestStats || cachedStats.calories > latestStats.calories)
-          ) {
-            console.log(
-              `Using higher calories count from cache: ${cachedStats.calories}`
+              `Using higher calories from cache: ${cachedStats.calories}`
             );
             totalCalories = cachedStats.calories;
           }
         }
 
-        // 2. Check workout backup keys for additional workout data
-        const allKeys = await AsyncStorage.getAllKeys();
-        const backupKeys = allKeys.filter((key) =>
-          key.startsWith("workout_backup_")
+        // Check for emergency override values that might have been set
+        const caloriesOverride = await AsyncStorage.getItem(
+          "CALORIES_OVERRIDE"
         );
-
-        let mostRecentBackup = null;
-        let mostRecentTimestamp = 0;
-
-        for (const key of backupKeys) {
-          const backupStr = await AsyncStorage.getItem(key);
-          if (backupStr) {
-            try {
-              const backup = JSON.parse(backupStr);
-              if (backup.userId === userId && backup.timestamp) {
-                const timestamp = new Date(backup.timestamp).getTime();
-                if (timestamp > mostRecentTimestamp) {
-                  mostRecentTimestamp = timestamp;
-                  mostRecentBackup = backup;
-                }
-              }
-            } catch (parseError) {
-              console.error(`Error parsing backup key ${key}:`, parseError);
-            }
-          }
-        }
-
-        if (mostRecentBackup && mostRecentBackup.stats) {
-          console.log(
-            "Settings: Found recent workout backup:",
-            mostRecentBackup.stats
-          );
-
-          // Use backup values if they're higher than what we have so far
-          if (mostRecentBackup.stats.calories > totalCalories) {
-            totalCalories = mostRecentBackup.stats.calories;
+        if (caloriesOverride) {
+          const overrideValue = parseInt(caloriesOverride, 10);
+          if (!isNaN(overrideValue) && overrideValue > totalCalories) {
+            console.log(`Using emergency calories override: ${overrideValue}`);
+            totalCalories = overrideValue;
           }
         }
       } catch (cacheError) {
@@ -412,27 +373,10 @@ export default function SettingsScreen() {
         );
       }
 
-      // Calculate total hours from workout details
-      if (workoutData && workoutData.length > 0) {
-        totalHours =
-          workoutData.reduce(
-            (sum, workout) => sum + (workout.duration || 0),
-            0
-          ) / 60;
-
-        // If no calories from stats, calculate from workouts
-        if (totalCalories === 0) {
-          totalCalories = workoutData.reduce(
-            (sum, workout) => sum + (workout.calories || 0),
-            0
-          );
-        }
-      }
-
       // Format for display
       return {
         totalWorkouts,
-        totalHours: parseFloat(totalHours.toFixed(1)),
+        totalHours,
         totalCalories,
       };
     } catch (error) {
@@ -789,8 +733,14 @@ export default function SettingsScreen() {
     // Initialize editing with current profile data
     setEditedProfile({
       ...userProfile,
-      height: userProfile.height.replace(" cm", ""),
-      weight: userProfile.weight.replace(" kg", ""),
+      height:
+        userProfile.height && typeof userProfile.height === "string"
+          ? userProfile.height.replace(" cm", "")
+          : "",
+      weight:
+        userProfile.weight && typeof userProfile.weight === "string"
+          ? userProfile.weight.replace(" kg", "")
+          : "",
       avatarUrl: userProfile.avatarUrl || "",
     });
     setEditModalVisible(true);
@@ -813,26 +763,29 @@ export default function SettingsScreen() {
       let finalAvatarUrl = editedProfile.avatarUrl;
 
       // Check if we have a new image to upload
-      if (editedProfile.avatarUrl && editedProfile.avatarUrl !== userProfile.avatarUrl && 
-          editedProfile.avatarUrl.startsWith('file:')) {
+      if (
+        editedProfile.avatarUrl &&
+        editedProfile.avatarUrl !== userProfile.avatarUrl &&
+        editedProfile.avatarUrl.startsWith("file:")
+      ) {
         try {
           // Upload the image to Supabase storage
           const imageUrl = await uploadImageToSupabase(
             editedProfile.avatarUrl,
-            'profile-images', // bucket name
-            'avatars',        // folder
-            user.id           // userId
+            "profile-images", // bucket name
+            "avatars", // folder
+            user.id // userId
           );
-          
+
           // Use the URL from Supabase storage
           finalAvatarUrl = imageUrl;
-          
+
           // Clean up old profile images if needed
           await deleteOldProfileImages(
-            'profile-images', // bucket name
-            user.id           // userId
+            "profile-images", // bucket name
+            user.id // userId
           );
-          
+
           console.log("Image uploaded successfully:", finalAvatarUrl);
         } catch (uploadError) {
           console.error("Error uploading image:", uploadError);
@@ -842,9 +795,11 @@ export default function SettingsScreen() {
 
       // Make sure finalAvatarUrl is never undefined
       if (!finalAvatarUrl) {
-        finalAvatarUrl = userProfile.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`;
+        finalAvatarUrl =
+          userProfile.avatarUrl ||
+          `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`;
       }
-      
+
       // Prepare profile data for database update
       const profileData = {
         username: editedProfile.username,
@@ -854,12 +809,12 @@ export default function SettingsScreen() {
         gender: editedProfile.gender || "",
         height: editedProfile.height || "",
         weight: editedProfile.weight || "",
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
       };
 
       // Update profile in the database
       const result = await updateUserProfile(user.id, profileData);
-      
+
       if (!result.success) {
         console.error("Error updating profile in database:", result.data);
         throw new Error("Failed to update profile");
@@ -869,21 +824,21 @@ export default function SettingsScreen() {
       const updatedProfile: UserProfile = {
         ...userProfile,
         ...editedProfile,
-        avatarUrl: finalAvatarUrl
+        avatarUrl: finalAvatarUrl,
       };
-      
+
       // Update state immediately for a responsive UI
       setUserProfile(updatedProfile);
-      
+
       // Save updated profile to local storage
       await AsyncStorage.setItem(
         `userProfile-${user.id}`,
         JSON.stringify(updatedProfile)
       );
-      
+
       setEditModalVisible(false);
       setIsLoading(false);
-      
+
       showErrorToast("Profile updated successfully!");
     } catch (error) {
       console.error("Error saving profile:", error);
@@ -914,19 +869,19 @@ export default function SettingsScreen() {
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const selectedAsset = result.assets[0];
-        
+
         // Update the editedProfile with the new image
         const updatedProfile = {
           ...editedProfile,
           avatarUrl: selectedAsset.uri,
         };
-        
+
         setEditedProfile(updatedProfile);
-        
+
         // Also save this to AsyncStorage so it persists
         saveEditProgress(updatedProfile);
       }
-      
+
       setUploadingImage(false);
     } catch (error) {
       console.error("Error changing photo:", error);
@@ -974,7 +929,10 @@ export default function SettingsScreen() {
         break;
       default:
         // For any other screens, show an alert indicating they're not implemented yet
-        Alert.alert("Coming Soon", `The ${screen} screen will be available in a future update.`);
+        Alert.alert(
+          "Coming Soon",
+          `The ${screen} screen will be available in a future update.`
+        );
         break;
     }
   };
@@ -1209,19 +1167,21 @@ export default function SettingsScreen() {
 
   // Helper functions for date formatting
   const formatDateToBirthdayString = (date: Date): string => {
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const day = date.getDate().toString().padStart(2, '0');
+    const month = (date.getMonth() + 1).toString().padStart(2, "0");
+    const day = date.getDate().toString().padStart(2, "0");
     const year = date.getFullYear();
     return `${month}/${day}/${year}`;
   };
 
   const formatBirthdayStringToDate = (birthdayString: string): Date => {
     try {
-      const [month, day, year] = birthdayString.split('/').map(part => parseInt(part));
+      const [month, day, year] = birthdayString
+        .split("/")
+        .map((part) => parseInt(part));
       const date = new Date(year, month - 1, day);
       return isNaN(date.getTime()) ? new Date() : date;
     } catch (e) {
-      console.error('Error parsing birthday string:', e);
+      console.error("Error parsing birthday string:", e);
       return new Date();
     }
   };
@@ -1251,7 +1211,7 @@ export default function SettingsScreen() {
 
         {/* Profile Card */}
         <View
-          style={{ 
+          style={{
             backgroundColor: colors.card,
             borderRadius: 20,
             shadowColor: "#000",
@@ -1260,39 +1220,48 @@ export default function SettingsScreen() {
             shadowRadius: 8,
             elevation: 3,
             marginBottom: 20,
-            overflow: 'hidden'
+            overflow: "hidden",
           }}
           className="mb-6"
         >
-          <View style={{ 
-            backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
-            paddingVertical: 16
-          }}>
+          <View
+            style={{
+              backgroundColor: isDarkMode
+                ? "rgba(139, 92, 246, 0.15)"
+                : "rgba(99, 102, 241, 0.08)",
+              paddingVertical: 16,
+            }}
+          >
             <View className="flex-row items-center justify-between px-6">
               <View className="flex-row items-center flex-1 pr-4">
                 {userProfile?.avatarUrl ? (
                   <Image
                     source={{ uri: userProfile.avatarUrl }}
-                    style={{ 
-                      width: avatarSize + 10, 
+                    style={{
+                      width: avatarSize + 10,
                       height: avatarSize + 10,
                       borderWidth: 2,
-                      borderColor: isDarkMode ? '#8B5CF6' : '#6366F1' 
+                      borderColor: isDarkMode ? "#8B5CF6" : "#6366F1",
                     }}
                     className="rounded-full"
                   />
                 ) : (
                   <View
-                    style={{ 
-                      width: avatarSize + 10, 
+                    style={{
+                      width: avatarSize + 10,
                       height: avatarSize + 10,
                       borderWidth: 2,
-                      borderColor: isDarkMode ? '#8B5CF6' : '#6366F1',
-                      backgroundColor: isDarkMode ? "rgba(55, 65, 81, 0.7)" : "#F3F4F6"
+                      borderColor: isDarkMode ? "#8B5CF6" : "#6366F1",
+                      backgroundColor: isDarkMode
+                        ? "rgba(55, 65, 81, 0.7)"
+                        : "#F3F4F6",
                     }}
                     className="rounded-full items-center justify-center"
                   >
-                    <User size={32} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
+                    <User
+                      size={32}
+                      color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+                    />
                   </View>
                 )}
                 <View className="ml-4 flex-1">
@@ -1324,12 +1293,15 @@ export default function SettingsScreen() {
                 </View>
               </View>
               <TouchableOpacity
+                activeOpacity={0.8}
                 onPress={handleEditProfile}
                 style={{
-                  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.6)',
+                  backgroundColor: isDarkMode
+                    ? "rgba(255, 255, 255, 0.1)"
+                    : "rgba(255, 255, 255, 0.6)",
                   padding: 8,
                   borderRadius: 10,
-                  alignSelf: 'center'
+                  alignSelf: "center",
                 }}
               >
                 <Pencil size={18} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
@@ -1341,72 +1313,106 @@ export default function SettingsScreen() {
           <View className={`${sectionPadding} py-5`}>
             <View className="flex-row justify-between">
               <View className="flex-1 items-center flex-row">
-                <View 
+                <View
                   style={{
-                    backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                    backgroundColor: isDarkMode
+                      ? "rgba(139, 92, 246, 0.15)"
+                      : "rgba(99, 102, 241, 0.08)",
                     width: 40,
                     height: 40,
                     borderRadius: 12,
                     alignItems: "center",
                     justifyContent: "center",
-                    marginRight: 10
+                    marginRight: 10,
                   }}
                 >
-                  <Activity size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
+                  <Activity
+                    size={20}
+                    color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+                  />
                 </View>
                 <View>
-                  <Text style={{ color: colors.text }} className="text-xl font-bold">
+                  <Text
+                    style={{ color: colors.text }}
+                    className="text-xl font-bold"
+                  >
                     {userProfile?.stats.totalWorkouts || 0}
                   </Text>
-                  <Text style={{ color: colors.secondaryText }} className="text-xs">
+                  <Text
+                    style={{ color: colors.secondaryText }}
+                    className="text-xs"
+                  >
                     Workouts
                   </Text>
                 </View>
               </View>
               <View className="flex-1 items-center flex-row justify-center">
-                <View 
+                <View
                   style={{
-                    backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                    backgroundColor: isDarkMode
+                      ? "rgba(139, 92, 246, 0.15)"
+                      : "rgba(99, 102, 241, 0.08)",
                     width: 40,
                     height: 40,
                     borderRadius: 12,
                     alignItems: "center",
                     justifyContent: "center",
-                    marginRight: 10
+                    marginRight: 10,
                   }}
                 >
                   <Clock size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
                 </View>
                 <View>
-                  <Text style={{ color: colors.text }} className="text-xl font-bold">
-                    {userProfile?.stats.totalHours || 0}h
+                  <Text
+                    style={{ color: colors.text }}
+                    className="text-xl font-bold"
+                  >
+                    {userProfile?.stats.totalHours
+                      ? userProfile.stats.totalHours < 1
+                        ? userProfile.stats.totalHours.toFixed(1)
+                        : Math.round(userProfile.stats.totalHours)
+                      : 0}
+                    h
                   </Text>
-                  <Text style={{ color: colors.secondaryText }} className="text-xs">
+                  <Text
+                    style={{ color: colors.secondaryText }}
+                    className="text-xs"
+                  >
                     Hours
                   </Text>
                 </View>
               </View>
               <View className="flex-1 items-center flex-row justify-end">
-                <View 
+                <View
                   style={{
-                    backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                    backgroundColor: isDarkMode
+                      ? "rgba(139, 92, 246, 0.15)"
+                      : "rgba(99, 102, 241, 0.08)",
                     width: 40,
                     height: 40,
                     borderRadius: 12,
                     alignItems: "center",
                     justifyContent: "center",
-                    marginRight: 10
+                    marginRight: 10,
                   }}
                 >
                   <Flame size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
                 </View>
                 <View>
-                  <Text style={{ color: colors.text }} className="text-xl font-bold">
-                    {userProfile?.stats.totalCalories
-                      ? ((userProfile.stats.totalCalories || 0) / 1000).toFixed(1) + "k"
-                      : "0"}
+                  <Text
+                    style={{ color: colors.text }}
+                    className="text-xl font-bold"
+                  >
+                    {userProfile?.stats.totalCalories >= 1000
+                      ? ((userProfile.stats.totalCalories || 0) / 1000).toFixed(
+                          1
+                        ) + "k"
+                      : userProfile?.stats.totalCalories || 0}
                   </Text>
-                  <Text style={{ color: colors.secondaryText }} className="text-xs">
+                  <Text
+                    style={{ color: colors.secondaryText }}
+                    className="text-xs"
+                  >
                     Calories
                   </Text>
                 </View>
@@ -1417,24 +1423,30 @@ export default function SettingsScreen() {
 
         {/* Settings Categories */}
         <View className="mb-6 mt-2">
-          <Text style={{ color: colors.text }} className={`${headerTextClass} font-bold mb-3`}>
+          <Text
+            style={{ color: colors.text }}
+            className={`${headerTextClass} font-bold mb-3`}
+          >
             Account
           </Text>
-          
+
           <TouchableOpacity
             style={{ backgroundColor: colors.card }}
             className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm mb-3`}
             onPress={() => handleSettingsNavigation("Account Settings")}
+            activeOpacity={0.8}
           >
             <View className="flex-row items-center">
               <View
                 style={{
-                  backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                  backgroundColor: isDarkMode
+                    ? "rgba(139, 92, 246, 0.15)"
+                    : "rgba(99, 102, 241, 0.08)",
                   width: 36,
                   height: 36,
                   borderRadius: 18,
                   alignItems: "center",
-                  justifyContent: "center"
+                  justifyContent: "center",
                 }}
               >
                 <User size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
@@ -1456,16 +1468,19 @@ export default function SettingsScreen() {
             style={{ backgroundColor: colors.card }}
             className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm mb-3`}
             onPress={() => handleSettingsNavigation("Privacy Settings")}
+            activeOpacity={0.8}
           >
             <View className="flex-row items-center">
               <View
                 style={{
-                  backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                  backgroundColor: isDarkMode
+                    ? "rgba(139, 92, 246, 0.15)"
+                    : "rgba(99, 102, 241, 0.08)",
                   width: 36,
                   height: 36,
                   borderRadius: 18,
                   alignItems: "center",
-                  justifyContent: "center"
+                  justifyContent: "center",
                 }}
               >
                 <Lock size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
@@ -1487,16 +1502,19 @@ export default function SettingsScreen() {
             style={{ backgroundColor: colors.card }}
             className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm mb-3`}
             onPress={() => handleSettingsNavigation("Notification Preferences")}
+            activeOpacity={0.8}
           >
             <View className="flex-row items-center">
               <View
                 style={{
-                  backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                  backgroundColor: isDarkMode
+                    ? "rgba(139, 92, 246, 0.15)"
+                    : "rgba(99, 102, 241, 0.08)",
                   width: 36,
                   height: 36,
                   borderRadius: 18,
                   alignItems: "center",
-                  justifyContent: "center"
+                  justifyContent: "center",
                 }}
               >
                 <Bell size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
@@ -1516,7 +1534,10 @@ export default function SettingsScreen() {
         </View>
 
         <View className="mb-6">
-          <Text style={{ color: colors.text }} className={`${headerTextClass} font-bold mb-3`}>
+          <Text
+            style={{ color: colors.text }}
+            className={`${headerTextClass} font-bold mb-3`}
+          >
             Preferences
           </Text>
 
@@ -1524,16 +1545,19 @@ export default function SettingsScreen() {
             style={{ backgroundColor: colors.card }}
             className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm mb-3`}
             onPress={() => setThemeModalVisible(true)}
+            activeOpacity={0.8}
           >
             <View className="flex-row items-center">
               <View
                 style={{
-                  backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                  backgroundColor: isDarkMode
+                    ? "rgba(139, 92, 246, 0.15)"
+                    : "rgba(99, 102, 241, 0.08)",
                   width: 36,
                   height: 36,
                   borderRadius: 18,
                   alignItems: "center",
-                  justifyContent: "center"
+                  justifyContent: "center",
                 }}
               >
                 {isDarkMode ? (
@@ -1567,19 +1591,25 @@ export default function SettingsScreen() {
             style={{ backgroundColor: colors.card }}
             className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm mb-3`}
             onPress={() => handleSettingsNavigation("Connected Devices")}
+            activeOpacity={0.8}
           >
             <View className="flex-row items-center">
               <View
                 style={{
-                  backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                  backgroundColor: isDarkMode
+                    ? "rgba(139, 92, 246, 0.15)"
+                    : "rgba(99, 102, 241, 0.08)",
                   width: 36,
                   height: 36,
                   borderRadius: 18,
                   alignItems: "center",
-                  justifyContent: "center"
+                  justifyContent: "center",
                 }}
               >
-                <Smartphone size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
+                <Smartphone
+                  size={20}
+                  color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+                />
               </View>
               <Text
                 style={{ color: colors.text }}
@@ -1596,7 +1626,10 @@ export default function SettingsScreen() {
         </View>
 
         <View className="mb-6">
-          <Text style={{ color: colors.text }} className={`${headerTextClass} font-bold mb-3`}>
+          <Text
+            style={{ color: colors.text }}
+            className={`${headerTextClass} font-bold mb-3`}
+          >
             Support
           </Text>
 
@@ -1604,19 +1637,25 @@ export default function SettingsScreen() {
             style={{ backgroundColor: colors.card }}
             className={`flex-row items-center justify-between ${sectionPadding} rounded-xl shadow-sm mb-3`}
             onPress={() => handleSettingsNavigation("Help & Support")}
+            activeOpacity={0.8}
           >
             <View className="flex-row items-center">
               <View
                 style={{
-                  backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                  backgroundColor: isDarkMode
+                    ? "rgba(139, 92, 246, 0.15)"
+                    : "rgba(99, 102, 241, 0.08)",
                   width: 36,
                   height: 36,
                   borderRadius: 18,
                   alignItems: "center",
-                  justifyContent: "center"
+                  justifyContent: "center",
                 }}
               >
-                <HelpCircle size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
+                <HelpCircle
+                  size={20}
+                  color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+                />
               </View>
               <Text
                 style={{ color: colors.text }}
@@ -1635,7 +1674,7 @@ export default function SettingsScreen() {
         {/* App Version */}
         <View className="items-center mt-6 mb-4">
           <Text style={{ color: colors.secondaryText }} className="text-xs">
-            Function Fit v2.1.0
+            Function Fit v1.0
           </Text>
         </View>
 
@@ -1643,17 +1682,17 @@ export default function SettingsScreen() {
         <TouchableOpacity
           onPress={() => setShowLogoutModal(true)}
           className={`mb-12 py-4 rounded-xl`}
-          style={{ 
-            backgroundColor: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.08)',
-            marginHorizontal: 20
+          activeOpacity={0.8}
+          style={{
+            backgroundColor: isDarkMode
+              ? "rgba(239, 68, 68, 0.15)"
+              : "rgba(239, 68, 68, 0.08)",
+            marginHorizontal: 20,
           }}
         >
           <View className="flex-row justify-center items-center">
             <LogOut size={20} color="#EF4444" style={{ marginRight: 8 }} />
-            <Text
-              style={{ color: '#EF4444' }}
-              className="font-semibold"
-            >
+            <Text style={{ color: "#EF4444" }} className="font-semibold">
               Log Out
             </Text>
           </View>
@@ -1666,11 +1705,11 @@ export default function SettingsScreen() {
       {renderLogoutModal()}
       {renderDatabaseModal()}
       {showError && (
-        <Toast 
-          message={errorMessage} 
+        <Toast
+          message={errorMessage}
           type="error"
-          visible={showError} 
-          onDismiss={() => setShowError(false)} 
+          visible={showError}
+          onDismiss={() => setShowError(false)}
         />
       )}
 
@@ -1707,16 +1746,11 @@ export default function SettingsScreen() {
             >
               <View className="flex-row items-center">
                 <Sun size={20} color="#6366F1" />
-                <Text
-                  style={{ color: colors.text }}
-                  className="text-base ml-3"
-                >
+                <Text style={{ color: colors.text }} className="text-base ml-3">
                   Light
                 </Text>
               </View>
-              {currentTheme === "light" && (
-                <Check size={20} color="#6366F1" />
-              )}
+              {currentTheme === "light" && <Check size={20} color="#6366F1" />}
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -1728,16 +1762,11 @@ export default function SettingsScreen() {
             >
               <View className="flex-row items-center">
                 <Moon size={20} color="#8B5CF6" />
-                <Text
-                  style={{ color: colors.text }}
-                  className="text-base ml-3"
-                >
+                <Text style={{ color: colors.text }} className="text-base ml-3">
                   Dark
                 </Text>
               </View>
-              {currentTheme === "dark" && (
-                <Check size={20} color="#8B5CF6" />
-              )}
+              {currentTheme === "dark" && <Check size={20} color="#8B5CF6" />}
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -1750,10 +1779,7 @@ export default function SettingsScreen() {
             >
               <View className="flex-row items-center">
                 <Smartphone size={20} color={colors.text} />
-                <Text
-                  style={{ color: colors.text }}
-                  className="text-base ml-3"
-                >
+                <Text style={{ color: colors.text }} className="text-base ml-3">
                   System Default
                 </Text>
               </View>
@@ -1790,7 +1816,7 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             </View>
 
-            {["Male", "Female", "Non-binary", "Prefer not to say"].map((gender) => (
+            {["Male", "Female", "Prefer not to say"].map((gender) => (
               <TouchableOpacity
                 key={gender}
                 onPress={() => {
@@ -1829,10 +1855,10 @@ export default function SettingsScreen() {
             className="flex-1 mt-16 rounded-t-3xl"
           >
             <View className="p-4 flex-row justify-between items-center">
-              <TouchableOpacity onPress={handleCancel}>
+              <TouchableOpacity onPress={handleCancel} activeOpacity={0.8}>
                 <Text style={{ color: colors.secondaryText }}>Cancel</Text>
               </TouchableOpacity>
-              <Text 
+              <Text
                 style={{ color: colors.text }}
                 className="text-lg font-semibold"
               >
@@ -1841,6 +1867,7 @@ export default function SettingsScreen() {
               <TouchableOpacity
                 onPress={handleSaveProfile}
                 disabled={isLoading}
+                activeOpacity={0.8}
               >
                 <Text
                   style={{ color: isDarkMode ? "#8B5CF6" : "#6366F1" }}
@@ -1850,24 +1877,28 @@ export default function SettingsScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
-            
+
             <ScrollView className="p-4" showsVerticalScrollIndicator={false}>
               {/* Profile Photo */}
               <View className="items-center mb-6">
                 <View className="relative">
                   {uploadingImage ? (
                     <View className="w-20 h-20 rounded-full bg-gray-200 items-center justify-center">
-                      <ActivityIndicator color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
+                      <ActivityIndicator
+                        color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+                      />
                     </View>
                   ) : (
                     <Image
-                      source={{ uri: editedProfile.avatarUrl || userProfile.avatarUrl }}
+                      source={{
+                        uri: editedProfile.avatarUrl || userProfile.avatarUrl,
+                      }}
                       style={{ width: 80, height: 80, borderRadius: 40 }}
                     />
                   )}
                   <TouchableOpacity
                     style={{
-                      position: 'absolute',
+                      position: "absolute",
                       bottom: 0,
                       right: -5,
                       backgroundColor: isDarkMode ? "#8B5CF6" : "#6366F1",
@@ -1880,77 +1911,113 @@ export default function SettingsScreen() {
                   </TouchableOpacity>
                 </View>
               </View>
-              
+
               {/* Form Fields */}
               <View className="space-y-4">
                 {/* Username */}
                 <View>
-                  <Text style={{ color: colors.secondaryText }} className="mb-2 font-medium">
+                  <Text
+                    style={{ color: colors.secondaryText }}
+                    className="mb-2 font-medium"
+                  >
                     Username
                   </Text>
-                  <View 
-                    style={{ 
-                      borderColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-                      borderWidth: 1, 
-                      borderRadius: 12 
+                  <View
+                    style={{
+                      borderColor: isDarkMode
+                        ? "rgba(255,255,255,0.1)"
+                        : "rgba(0,0,0,0.1)",
+                      borderWidth: 1,
+                      borderRadius: 12,
                     }}
                     className="flex-row items-center overflow-hidden"
                   >
                     <View className="p-3">
-                      <User size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
+                      <User
+                        size={20}
+                        color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+                      />
                     </View>
                     <TextInput
-                      style={{ color: colors.text, flex: 1, paddingVertical: 12 }}
+                      style={{
+                        color: colors.text,
+                        flex: 1,
+                        paddingVertical: 12,
+                      }}
                       placeholder="Enter username"
                       placeholderTextColor={colors.secondaryText}
                       value={editedProfile.username}
                       onChangeText={(text) => {
-                        setEditedProfile({...editedProfile, username: text});
+                        setEditedProfile({ ...editedProfile, username: text });
                       }}
                     />
                   </View>
                 </View>
-                
+
                 {/* Email */}
-                <View>
-                  <Text style={{ color: colors.secondaryText }} className="mb-2 font-medium">
+                <View style={{ marginTop: 8 }}>
+                  <Text
+                    style={{ color: colors.secondaryText }}
+                    className="mb-2 font-medium"
+                  >
                     Email
                   </Text>
-                  <View 
-                    style={{ 
-                      borderColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-                      borderWidth: 1, 
-                      borderRadius: 12 
+                  <View
+                    style={{
+                      borderColor: isDarkMode
+                        ? "rgba(255,255,255,0.1)"
+                        : "rgba(0,0,0,0.1)",
+                      borderWidth: 1,
+                      borderRadius: 12,
                     }}
                     className="flex-row items-center overflow-hidden"
                   >
                     <View className="p-3">
-                      <Mail size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
+                      <Mail
+                        size={20}
+                        color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+                      />
                     </View>
                     <TextInput
-                      style={{ color: colors.text, flex: 1, paddingVertical: 12 }}
+                      style={{
+                        color: colors.text,
+                        flex: 1,
+                        paddingVertical: 12,
+                      }}
                       placeholder="Enter email"
                       placeholderTextColor={colors.secondaryText}
                       keyboardType="email-address"
                       autoCapitalize="none"
                       value={editedProfile.email}
                       onChangeText={(text) => {
-                        setEditedProfile({...editedProfile, email: text});
+                        setEditedProfile({ ...editedProfile, email: text });
                       }}
                     />
                   </View>
                 </View>
 
                 {/* Birthday */}
-                <View style={{ marginBottom: 20 }}>
-                  <Text style={{ color: colors.secondaryText }} className="mb-2 font-medium">
+                <View style={{ marginTop: 8 }}>
+                  <Text
+                    style={{ color: colors.secondaryText }}
+                    className="mb-2 font-medium"
+                  >
                     Birthday
                   </Text>
                   <CustomDateTimePicker
-                    date={editedProfile.birthday ? new Date(formatBirthdayStringToDate(editedProfile.birthday)) : new Date()}
+                    date={
+                      editedProfile.birthday
+                        ? new Date(
+                            formatBirthdayStringToDate(editedProfile.birthday)
+                          )
+                        : new Date()
+                    }
                     onChange={(date) => {
                       const formattedDate = formatDateToBirthdayString(date);
-                      setEditedProfile({...editedProfile, birthday: formattedDate});
+                      setEditedProfile({
+                        ...editedProfile,
+                        birthday: formattedDate,
+                      });
                     }}
                     mode="date"
                     format="MM/dd/yyyy"
@@ -1959,50 +2026,68 @@ export default function SettingsScreen() {
 
                 {/* Age (Auto-calculated) */}
                 <View>
-                  <Text style={{ color: colors.secondaryText }} className="mb-2 font-medium">
+                  <Text
+                    style={{ color: colors.secondaryText }}
+                    className="mb-2 font-medium"
+                  >
                     Age
                   </Text>
-                  <View 
-                    style={{ 
-                      borderColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-                      borderWidth: 1, 
+                  <View
+                    style={{
+                      borderColor: isDarkMode
+                        ? "rgba(255,255,255,0.1)"
+                        : "rgba(0,0,0,0.1)",
+                      borderWidth: 1,
                       borderRadius: 12,
-                      backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)'
+                      backgroundColor: isDarkMode
+                        ? "rgba(255,255,255,0.05)"
+                        : "rgba(0,0,0,0.03)",
                     }}
                     className="flex-row items-center overflow-hidden"
                   >
                     <View className="p-3">
-                      <Clock size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
+                      <Clock
+                        size={20}
+                        color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+                      />
                     </View>
                     <Text
-                      style={{ color: colors.text, flex: 1, paddingVertical: 14, paddingHorizontal: 5 }}
+                      style={{
+                        color: colors.text,
+                        flex: 1,
+                        paddingVertical: 14,
+                        paddingHorizontal: 5,
+                      }}
                     >
                       {(() => {
                         try {
-                          if (!editedProfile.birthday) return 'Auto-calculated from birthday';
-                          const dobParts = editedProfile.birthday.split('/');
-                          if (dobParts.length !== 3) return 'Invalid date format';
-                          
+                          if (!editedProfile.birthday)
+                            return "Auto-calculated from birthday";
+                          const dobParts = editedProfile.birthday.split("/");
+                          if (dobParts.length !== 3)
+                            return "Invalid date format";
+
                           const dob = new Date(
                             parseInt(dobParts[2]), // Year
                             parseInt(dobParts[0]) - 1, // Month (0-based)
                             parseInt(dobParts[1]) // Day
                           );
-                          
+
                           const now = new Date();
                           let age = now.getFullYear() - dob.getFullYear();
-                          
+
                           // Check if birthday hasn't occurred yet this year
                           if (
-                            now.getMonth() < dob.getMonth() || 
-                            (now.getMonth() === dob.getMonth() && now.getDate() < dob.getDate())
+                            now.getMonth() < dob.getMonth() ||
+                            (now.getMonth() === dob.getMonth() &&
+                              now.getDate() < dob.getDate())
                           ) {
                             age--;
                           }
-                          
-                          return isNaN(age) ? 'Invalid date' : `${age} years`;
+
+                          return isNaN(age) ? "Invalid date" : `${age} years`;
                         } catch (e) {
-                          return 'Error calculating age';
+                          return "Error calculating age";
                         }
                       })()}
                     </Text>
@@ -2010,27 +2095,37 @@ export default function SettingsScreen() {
                 </View>
 
                 {/* Gender (Selection) */}
-                <View>
-                  <Text style={{ color: colors.secondaryText }} className="mb-2 font-medium">
+                <View style={{ marginTop: 8 }}>
+                  <Text
+                    style={{ color: colors.secondaryText }}
+                    className="mb-2 font-medium"
+                  >
                     Gender
                   </Text>
                   <TouchableOpacity
                     onPress={() => setShowGenderModal(true)}
-                    style={{ 
-                      borderColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-                      borderWidth: 1, 
-                      borderRadius: 12 
+                    style={{
+                      borderColor: isDarkMode
+                        ? "rgba(255,255,255,0.1)"
+                        : "rgba(0,0,0,0.1)",
+                      borderWidth: 1,
+                      borderRadius: 12,
                     }}
                     className="flex-row items-center justify-between overflow-hidden"
                   >
                     <View className="flex-row items-center">
                       <View className="p-3">
-                        <Users size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
+                        <Users
+                          size={20}
+                          color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+                        />
                       </View>
                       <Text
-                        style={{ 
-                          color: editedProfile.gender ? colors.text : colors.secondaryText,
-                          paddingVertical: 14
+                        style={{
+                          color: editedProfile.gender
+                            ? colors.text
+                            : colors.secondaryText,
+                          paddingVertical: 14,
                         }}
                       >
                         {editedProfile.gender || "Select gender"}
@@ -2043,58 +2138,82 @@ export default function SettingsScreen() {
                 </View>
 
                 {/* Height */}
-                <View>
-                  <Text style={{ color: colors.secondaryText }} className="mb-2 font-medium">
+                <View style={{ marginTop: 8 }}>
+                  <Text
+                    style={{ color: colors.secondaryText }}
+                    className="mb-2 font-medium"
+                  >
                     Height (cm)
                   </Text>
-                  <View 
-                    style={{ 
-                      borderColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-                      borderWidth: 1, 
-                      borderRadius: 12 
+                  <View
+                    style={{
+                      borderColor: isDarkMode
+                        ? "rgba(255,255,255,0.1)"
+                        : "rgba(0,0,0,0.1)",
+                      borderWidth: 1,
+                      borderRadius: 12,
                     }}
                     className="flex-row items-center overflow-hidden"
                   >
                     <View className="p-3">
-                      <Ruler size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
+                      <Ruler
+                        size={20}
+                        color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+                      />
                     </View>
                     <TextInput
-                      style={{ color: colors.text, flex: 1, paddingVertical: 12 }}
+                      style={{
+                        color: colors.text,
+                        flex: 1,
+                        paddingVertical: 12,
+                      }}
                       placeholder="Enter height in cm"
                       placeholderTextColor={colors.secondaryText}
                       keyboardType="numeric"
                       value={editedProfile.height}
                       onChangeText={(text) => {
-                        setEditedProfile({...editedProfile, height: text});
+                        setEditedProfile({ ...editedProfile, height: text });
                       }}
                     />
                   </View>
                 </View>
 
                 {/* Weight */}
-                <View style={{ marginBottom: 20 }}>
-                  <Text style={{ color: colors.secondaryText }} className="mb-2 font-medium">
+                <View style={{ marginTop: 8, marginBottom: 30 }}>
+                  <Text
+                    style={{ color: colors.secondaryText }}
+                    className="mb-2 font-medium"
+                  >
                     Weight (kg)
                   </Text>
-                  <View 
-                    style={{ 
-                      borderColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-                      borderWidth: 1, 
-                      borderRadius: 12 
+                  <View
+                    style={{
+                      borderColor: isDarkMode
+                        ? "rgba(255,255,255,0.1)"
+                        : "rgba(0,0,0,0.1)",
+                      borderWidth: 1,
+                      borderRadius: 12,
                     }}
                     className="flex-row items-center overflow-hidden"
                   >
                     <View className="p-3">
-                      <Weight size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
+                      <Weight
+                        size={20}
+                        color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+                      />
                     </View>
                     <TextInput
-                      style={{ color: colors.text, flex: 1, paddingVertical: 12 }}
+                      style={{
+                        color: colors.text,
+                        flex: 1,
+                        paddingVertical: 12,
+                      }}
                       placeholder="Enter weight in kg"
                       placeholderTextColor={colors.secondaryText}
                       keyboardType="numeric"
                       value={editedProfile.weight}
                       onChangeText={(text) => {
-                        setEditedProfile({...editedProfile, weight: text});
+                        setEditedProfile({ ...editedProfile, weight: text });
                       }}
                     />
                   </View>

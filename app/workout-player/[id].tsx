@@ -271,6 +271,29 @@ export default function WorkoutPlayerScreen() {
         // Get workout data from Supabase
         const workoutData = await getWorkoutById(workoutId);
 
+        // Deduplicate exercises by ID
+        let uniqueExercises = [];
+        if (workoutData?.exercises && Array.isArray(workoutData.exercises)) {
+          // Create a Map to deduplicate by exercise ID
+          const uniqueExerciseMap = new Map();
+
+          for (const exercise of workoutData.exercises) {
+            // Skip if we already have this exercise ID
+            if (uniqueExerciseMap.has(exercise.id)) continue;
+
+            uniqueExerciseMap.set(exercise.id, exercise);
+          }
+
+          uniqueExercises = Array.from(uniqueExerciseMap.values());
+        } else {
+          uniqueExercises = workoutData?.exercises || [];
+        }
+
+        console.log(
+          `Original exercise count: ${workoutData?.exercises?.length || 0}`
+        );
+        console.log(`After deduplication: ${uniqueExercises.length}`);
+
         // Format the workout data
         const formattedWorkout: WorkoutData = {
           id: workoutData?.id || id || "1",
@@ -283,7 +306,7 @@ export default function WorkoutPlayerScreen() {
             workoutData?.image_url ||
             "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=500&q=80",
           exercises:
-            workoutData?.exercises?.map((ex: any) => ({
+            uniqueExercises.map((ex: any) => ({
               id: ex?.id || `ex-${Math.random().toString(36).substring(7)}`,
               name: ex?.name || "Exercise",
               duration: ex?.duration || "45 sec",
@@ -342,20 +365,28 @@ export default function WorkoutPlayerScreen() {
 
       if (user && workout) {
         try {
-          // Calculate workout duration in minutes (rounded up)
-          const durationInMinutes = Math.ceil(totalTimeElapsed / 60);
+          // Calculate workout duration in minutes - for test workouts, make sure we're storing the actual elapsed time
+          // even if it's just a few seconds
+          const durationInMinutes = Math.max(
+            Math.ceil(totalTimeElapsed / 60),
+            1
+          );
 
-          // Estimate calories - this is a more accurate calculation
+          // For very short test workouts (less than 1 minute), record the actual seconds for accuracy
+          const actualDurationInSeconds = totalTimeElapsed;
+
+          // Estimate calories - use a more accurate calculation for short workouts
           const estimatedCalories = Math.max(
             Math.round(caloriesBurned),
-            Math.round(durationInMinutes * 8)
+            // For very short workouts, use a lower multiplier
+            actualDurationInSeconds < 60 ? 5 : Math.round(durationInMinutes * 8)
           );
 
           // Log the completed workout using the updated completeWorkout function
           const result = await completeWorkout(
             user.id,
             workout.id,
-            durationInMinutes,
+            durationInMinutes, // This is what gets stored in the database
             estimatedCalories
           );
 

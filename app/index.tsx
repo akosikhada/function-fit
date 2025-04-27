@@ -44,9 +44,20 @@ import {
   getUserProfile,
 } from "./utils/supabase";
 
+// Define the Activity type
+type Activity = {
+  id: string;
+  title: string;
+  type: "workout" | "run" | "cardio" | string;
+  duration?: string;
+  distance?: string;
+  calories?: string;
+  time: string;
+};
+
 // Default data structure to use while loading or if there's an error
 const defaultUserData = {
-  username: "Account Loading...",
+  username: "Loading...",
   stepsProgress: 0,
   caloriesProgress: 0,
   workoutProgress: 0,
@@ -56,39 +67,13 @@ const defaultUserData = {
   streakCount: 0,
   achievements: [],
   todaysWorkout: {
-    id: "1",
-    title: "Full Body Strength",
-    duration: "45 mins",
-    level: "Intermediate",
-    imageUrl:
-      "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=500&q=80",
+    id: "",
+    title: "",
+    duration: "",
+    level: "",
+    imageUrl: "",
   },
-  recentActivities: [
-    {
-      id: "1",
-      title: "Upper Body Workout",
-      type: "workout",
-      duration: "45 min",
-      calories: "350",
-      time: "Today, 8:30 AM",
-    },
-    {
-      id: "2",
-      title: "Morning Run",
-      type: "run",
-      distance: "5.2 km",
-      duration: "32 min",
-      time: "Yesterday, 6:15 AM",
-    },
-    {
-      id: "3",
-      title: "Cardio Session",
-      type: "cardio",
-      duration: "45 min",
-      calories: "420",
-      time: "Yesterday, 5:30 PM",
-    },
-  ],
+  recentActivities: [] as Activity[],
 };
 
 const screenWidth = Dimensions.get("window").width;
@@ -126,7 +111,7 @@ export default function HomeScreen() {
   const workoutAnim = useRef(new Animated.Value(0)).current;
   const activitiesAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(1)).current;
-  
+
   // Parallax scroll effect
   const scrollY = useRef(new Animated.Value(0)).current;
 
@@ -146,7 +131,7 @@ export default function HomeScreen() {
     try {
       // Reset all data sources
       await fetchUserData();
-      
+
       // Show success message
       setToast({
         visible: true,
@@ -251,11 +236,50 @@ export default function HomeScreen() {
         try {
           console.log("Home screen focused - checking for forced refresh");
 
-          // Check for emergency fix first - highest priority
-          const emergencyFixDone = await performEmergencyRefresh();
-          if (emergencyFixDone) {
-            console.log("Emergency fix applied, skipping normal refresh");
-            return;
+          // Check if workout was recently completed
+          const lastCompletion = await AsyncStorage.getItem(
+            "last_workout_completion"
+          );
+          const now = Date.now();
+          const lastCompletionTime = lastCompletion
+            ? new Date(lastCompletion).getTime()
+            : 0;
+          const timeSinceCompletion = now - lastCompletionTime;
+
+          // If workout was completed recently (within 1 minute), use force cache refresh
+          if (lastCompletion && timeSinceCompletion < 60 * 1000) {
+            console.log(
+              "Recent workout completion detected, forcing cache refresh"
+            );
+            // Get workout start time to calculate session duration
+            const workoutStartedAt = await AsyncStorage.getItem(
+              "workout_started_at"
+            );
+            const sessionDuration = workoutStartedAt
+              ? (now - parseInt(workoutStartedAt)) / 1000
+              : 0;
+
+            // If session was very short, prioritize emergency fix
+            if (sessionDuration < 60) {
+              // Less than 1 minute
+              // Check for emergency fix first - highest priority
+              const emergencyFixDone = await performEmergencyRefresh();
+              if (emergencyFixDone) {
+                console.log("Emergency fix applied, skipping normal refresh");
+                setLoading(false);
+                await AsyncStorage.removeItem("workout_started_at");
+                return;
+              }
+            }
+
+            // Force immediate cache refresh first
+            const success = await fetchUserData(true);
+            if (success) {
+              console.log("Data refreshed successfully after workout");
+              setLoading(false);
+              await AsyncStorage.removeItem("workout_started_at");
+              return;
+            }
           }
 
           // Normal refresh flow
@@ -269,10 +293,13 @@ export default function HomeScreen() {
             return;
           }
 
-          // Basic refresh on focus
+          // Basic refresh on focus - ALWAYS fetch user data when screen is focused
           await fetchUserData();
         } catch (error) {
           console.error("Error checking refresh flag:", error);
+        } finally {
+          // Ensure loading is set to false
+          setLoading(false);
         }
       };
 
@@ -309,8 +336,8 @@ export default function HomeScreen() {
   // Handle start workout button
   const handleStartWorkout = async () => {
     try {
-      // Navigate to workout library without updating stats
-      // Stats will only be updated when workout is actually completed
+      // Mark timestamp before workout starts to detect completion later
+      await AsyncStorage.setItem("workout_started_at", Date.now().toString());
       router.push("/library");
     } catch (error) {
       console.error("Error starting workout:", error);
@@ -319,9 +346,21 @@ export default function HomeScreen() {
   };
 
   // Fetch user data
-  const fetchUserData = async () => {
+  const fetchUserData = async (forceCacheRefresh = false) => {
     try {
       setError(null);
+
+      // For immediate updates after workouts, prioritize cache refresh
+      if (forceCacheRefresh) {
+        console.log("Force cache refresh requested, prioritizing local data");
+        // Clear any existing flags
+        await AsyncStorage.removeItem("FORCE_REFRESH_HOME");
+        const cacheRefreshed = await fetchAccurateProgressData();
+        if (cacheRefreshed) {
+          console.log("Successfully refreshed from cache");
+          return true;
+        }
+      }
 
       // Check for emergency flags first
       const emergencyFix = await AsyncStorage.getItem("EMERGENCY_FIX_REQUIRED");
@@ -440,7 +479,7 @@ export default function HomeScreen() {
       }
 
       // Format recent workouts for display
-      const recentActivities = recentWorkouts
+      const recentActivities: Activity[] = recentWorkouts
         ? recentWorkouts.map((workout) => {
             // Calculate how long ago the workout was completed
             const completedDate = workout.completed_at
@@ -465,7 +504,7 @@ export default function HomeScreen() {
               time: timeAgo,
             };
           })
-        : defaultUserData.recentActivities;
+        : [];
 
       // Update avatar URL if available from profile
       if (profile?.avatar_url) {
@@ -505,10 +544,7 @@ export default function HomeScreen() {
           ...dashboardData.todaysWorkout,
           level: "beginner",
         },
-        recentActivities:
-          recentActivities.length > 0
-            ? recentActivities
-            : defaultUserData.recentActivities,
+        recentActivities: recentActivities.length > 0 ? recentActivities : [],
       });
     } catch (err) {
       console.error("Error fetching user data:", err);
@@ -592,8 +628,8 @@ export default function HomeScreen() {
           : 0;
         const timeSinceCompletion = now - lastCompletionTime;
 
-        // If a workout was completed in the last 5 minutes, prioritize emergency refresh
-        if (lastCompletion && timeSinceCompletion < 5 * 60 * 1000) {
+        // If a workout was completed in the last 1 minute, prioritize emergency refresh
+        if (lastCompletion && timeSinceCompletion < 60 * 1000) {
           console.log(
             "Recent workout completion detected, prioritizing emergency refresh"
           );
@@ -624,7 +660,7 @@ export default function HomeScreen() {
     };
 
     loadInitialData();
-    
+
     // Run animations
     Animated.stagger(100, [
       Animated.spring(headerAnim, {
@@ -677,9 +713,7 @@ export default function HomeScreen() {
           <Footprints size={22} color={isDarkMode ? "#60A5FA" : "#3B82F6"} />
         );
       case "cardio":
-        return (
-          <Flame size={22} color={isDarkMode ? "#F472B6" : "#EC4899"} />
-        );
+        return <Flame size={22} color={isDarkMode ? "#F472B6" : "#EC4899"} />;
       default:
         return (
           <Activity size={22} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
@@ -860,7 +894,7 @@ export default function HomeScreen() {
   // Card Shadow style by platform
   const cardShadow = Platform.select({
     ios: {
-      shadowColor: isDarkMode ? '#000' : '#000',
+      shadowColor: isDarkMode ? "#000" : "#000",
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: isDarkMode ? 0.3 : 0.1,
       shadowRadius: 8,
@@ -869,7 +903,7 @@ export default function HomeScreen() {
       elevation: 4,
     },
     default: {
-      shadowColor: isDarkMode ? '#000' : '#000',
+      shadowColor: isDarkMode ? "#000" : "#000",
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: isDarkMode ? 0.3 : 0.1,
       shadowRadius: 8,
@@ -990,14 +1024,14 @@ export default function HomeScreen() {
                       translateY: scrollY.interpolate({
                         inputRange: [0, 100],
                         outputRange: [0, -20],
-                        extrapolate: 'clamp',
+                        extrapolate: "clamp",
                       }),
                     },
                   ],
                   marginTop: 10,
                   marginBottom: 24,
                   borderRadius: 24,
-                  overflow: 'hidden',
+                  overflow: "hidden",
                   ...cardShadow,
                 }}
               >
@@ -1025,7 +1059,7 @@ export default function HomeScreen() {
                       translateY: scrollY.interpolate({
                         inputRange: [0, 150],
                         outputRange: [0, -15],
-                        extrapolate: 'clamp',
+                        extrapolate: "clamp",
                       }),
                     },
                   ],
@@ -1034,9 +1068,14 @@ export default function HomeScreen() {
                 <TouchableOpacity
                   style={{ width: buttonWidth }}
                   onPress={handleStartWorkout}
+                  activeOpacity={0.8}
                 >
                   <LinearGradient
-                    colors={isDarkMode ? ['#4F46E5', '#7C3AED'] : ['#6366F1', '#4F46E5']}
+                    colors={
+                      isDarkMode
+                        ? ["#4F46E5", "#7C3AED"]
+                        : ["#6366F1", "#4F46E5"]
+                    }
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     style={{
@@ -1060,81 +1099,9 @@ export default function HomeScreen() {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={{ width: buttonWidth }}
-                >
-                  <View
-                    style={{
-                      backgroundColor: colors.card,
-                      borderRadius: 16,
-                      height: 80,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      ...cardShadow,
-                    }}
-                  >
-                    <Footprints
-                      size={24}
-                      color={colors.accent}
-                      style={{ marginRight: iconSpacing }}
-                    />
-                    <Text
-                      style={{ color: colors.accent }}
-                      className="font-semibold text-base"
-                    >
-                      Track Run
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              </Animated.View>
-
-              {/* Programs and Nutrition Buttons */}
-              <Animated.View
-                className="flex-row justify-between mb-8"
-                style={{
-                  transform: [
-                    { translateY: actionsAnim },
-                    {
-                      translateY: scrollY.interpolate({
-                        inputRange: [0, 200],
-                        outputRange: [0, -10],
-                        extrapolate: 'clamp',
-                      }),
-                    },
-                  ],
-                }}
-              >
-                <TouchableOpacity
-                  style={{ width: buttonWidth }}
-                >
-                  <View
-                    style={{
-                      backgroundColor: colors.card,
-                      borderRadius: 16,
-                      height: 80,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      ...cardShadow,
-                    }}
-                  >
-                    <CalendarDays
-                      size={24}
-                      color={colors.accent}
-                      style={{ marginRight: iconSpacing }}
-                    />
-                    <Text
-                      style={{ color: colors.accent }}
-                      className="font-semibold text-base"
-                    >
-                      Programs
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-
-                <TouchableOpacity
                   onPress={() => router.push("/nutrition")}
                   style={{ width: buttonWidth }}
+                  activeOpacity={0.8}
                 >
                   <View
                     style={{
@@ -1176,8 +1143,11 @@ export default function HomeScreen() {
                   >
                     Recent Activities
                   </Text>
-                  <TouchableOpacity>
-                    <Text style={{ color: colors.accent }} className="text-sm font-medium">
+                  <TouchableOpacity activeOpacity={0.8}>
+                    <Text
+                      style={{ color: colors.accent }}
+                      className="text-sm font-medium"
+                    >
                       See All
                     </Text>
                   </TouchableOpacity>
@@ -1190,90 +1160,132 @@ export default function HomeScreen() {
                   }}
                   className="p-4"
                 >
-                  {userData.recentActivities.map((activity, index) => (
-                    <View
-                      key={activity.id}
-                      style={{
-                        flexDirection: "row",
-                        paddingVertical: 14,
-                        borderBottomWidth:
-                          index < userData.recentActivities.length - 1 ? 1 : 0,
-                        borderBottomColor: isDarkMode
-                          ? "rgba(255, 255, 255, 0.1)"
-                          : "rgba(0, 0, 0, 0.05)",
-                      }}
-                    >
+                  {userData.recentActivities.length > 0 ? (
+                    userData.recentActivities.map((activity, index) => (
                       <View
+                        key={activity.id}
                         style={{
-                          width: 42,
-                          height: 42,
-                          borderRadius: 21,
-                          backgroundColor: isDarkMode ? "rgba(79, 70, 229, 0.2)" : "rgba(79, 70, 229, 0.1)",
-                          alignItems: "center",
-                          justifyContent: "center",
+                          flexDirection: "row",
+                          paddingVertical: 14,
+                          borderBottomWidth:
+                            index < userData.recentActivities.length - 1
+                              ? 1
+                              : 0,
+                          borderBottomColor: isDarkMode
+                            ? "rgba(255, 255, 255, 0.1)"
+                            : "rgba(0, 0, 0, 0.05)",
                         }}
                       >
-                        {getActivityIcon(activity.type)}
-                      </View>
-                      <View className="ml-3 flex-1">
-                        <Text
-                          style={{ color: colors.text }}
-                          className="font-bold"
+                        <View
+                          style={{
+                            width: 42,
+                            height: 42,
+                            borderRadius: 21,
+                            backgroundColor: isDarkMode
+                              ? "rgba(79, 70, 229, 0.2)"
+                              : "rgba(79, 70, 229, 0.1)",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
                         >
-                          {activity.title}
-                        </Text>
-                        <View className="flex-row mt-1">
-                          {activity.duration && (
-                            <View className="flex-row items-center mr-3">
-                              <Clock size={12} color={colors.secondaryText} style={{ marginRight: 4 }} />
-                              <Text
-                                style={{ color: colors.secondaryText }}
-                                className="text-xs"
-                              >
-                                {activity.duration}
-                              </Text>
-                            </View>
-                          )}
-                          {activity.distance && (
-                            <View className="flex-row items-center mr-3">
-                              <Footprints size={12} color={colors.secondaryText} style={{ marginRight: 4 }} />
-                              <Text
-                                style={{ color: colors.secondaryText }}
-                                className="text-xs"
-                              >
-                                {activity.distance}
-                              </Text>
-                            </View>
-                          )}
-                          {activity.calories && (
-                            <View className="flex-row items-center">
-                              <Flame size={12} color={colors.secondaryText} style={{ marginRight: 4 }} />
-                              <Text
-                                style={{ color: colors.secondaryText }}
-                                className="text-xs"
-                              >
-                                {activity.calories} kcal
-                              </Text>
-                            </View>
-                          )}
+                          {getActivityIcon(activity.type)}
                         </View>
-                        <Text
-                          style={{ color: colors.secondaryText }}
-                          className="text-xs mt-1"
+                        <View style={{ flex: 1, marginLeft: 12 }}>
+                          <Text
+                            style={{ color: colors.text }}
+                            className="font-bold"
+                          >
+                            {activity.title}
+                          </Text>
+                          <View className="flex-row mt-1">
+                            {activity.duration && (
+                              <View className="flex-row items-center mr-3">
+                                <Clock
+                                  size={12}
+                                  color={colors.secondaryText}
+                                  style={{ marginRight: 4 }}
+                                />
+                                <Text
+                                  style={{ color: colors.secondaryText }}
+                                  className="text-xs"
+                                >
+                                  {activity.duration}
+                                </Text>
+                              </View>
+                            )}
+                            {activity.distance && (
+                              <View className="flex-row items-center mr-3">
+                                <Footprints
+                                  size={12}
+                                  color={colors.secondaryText}
+                                  style={{ marginRight: 4 }}
+                                />
+                                <Text
+                                  style={{ color: colors.secondaryText }}
+                                  className="text-xs"
+                                >
+                                  {activity.distance}
+                                </Text>
+                              </View>
+                            )}
+                            {activity.calories && (
+                              <View className="flex-row items-center">
+                                <Flame
+                                  size={12}
+                                  color={colors.secondaryText}
+                                  style={{ marginRight: 4 }}
+                                />
+                                <Text
+                                  style={{ color: colors.secondaryText }}
+                                  className="text-xs"
+                                >
+                                  {activity.calories} kcal
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text
+                            style={{ color: colors.secondaryText }}
+                            className="text-xs mt-1"
+                          >
+                            {activity.time}
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          style={{
+                            alignSelf: "center",
+                            padding: 10,
+                          }}
                         >
-                          {activity.time}
-                        </Text>
+                          <TrendingUp size={16} color={colors.secondaryText} />
+                        </TouchableOpacity>
                       </View>
-                      <TouchableOpacity 
-                        style={{ 
-                          alignSelf: 'center',
-                          padding: 10,
-                        }}
+                    ))
+                  ) : (
+                    <View style={{ alignItems: "center", paddingVertical: 30 }}>
+                      <Activity
+                        size={40}
+                        color={
+                          isDarkMode
+                            ? "rgba(156, 163, 175, 0.5)"
+                            : "rgba(156, 163, 175, 0.7)"
+                        }
+                        style={{ marginBottom: 12 }}
+                      />
+                      <Text
+                        style={{ color: colors.secondaryText }}
+                        className="text-base font-medium text-center"
                       >
-                        <TrendingUp size={16} color={colors.secondaryText} />
-                      </TouchableOpacity>
+                        No activities yet
+                      </Text>
+                      <Text
+                        style={{ color: colors.secondaryText, opacity: 0.7 }}
+                        className="text-sm text-center mt-1"
+                      >
+                        Complete a workout to see your activities here
+                      </Text>
                     </View>
-                  ))}
+                  )}
                 </View>
               </Animated.View>
 
@@ -1287,7 +1299,7 @@ export default function HomeScreen() {
           <BottomNavigation activeTab="home" />
         </View>
 
-        {/* Toast notification */}
+        {/* Existing Toast component */}
         <Toast
           message={toast.message}
           type={toast.type}

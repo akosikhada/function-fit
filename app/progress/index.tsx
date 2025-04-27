@@ -136,10 +136,10 @@ export default function ProgressScreen() {
   const router = useRouter() as any;
   const horizontalPadding = 20;
   const [activeTab, setActiveTab] = useState("week"); // 'week' or 'month'
-  
+
   // Current date state
   const [today] = useState(new Date());
-  
+
   // Refreshing state
   const [refreshing, setRefreshing] = useState(false);
 
@@ -382,16 +382,19 @@ export default function ProgressScreen() {
       const user = await getUser();
       if (!user) return null;
 
-      // Get streak data from local storage
-      const streakKey = `workout_streak_${user.id}`;
+      // Get streak data from AsyncStorage
+      const streakKey = `streak_${user.id}`;
       const streakData = await AsyncStorage.getItem(streakKey);
-      let streak = streakData ? JSON.parse(streakData) : null;
+      const streak = streakData
+        ? JSON.parse(streakData)
+        : { currentStreak: 0, longestStreak: 0 };
 
-      // Format achievements based on streak data
+      // Initialize achievements array
       const achievements: Achievement[] = [];
 
+      // Add streak achievements
       if (streak) {
-        // Add current streak if it's at least 3 days
+        // Add current streak achievement
         if (streak.currentStreak >= 3) {
           achievements.push({
             id: "streak-current",
@@ -420,19 +423,25 @@ export default function ProgressScreen() {
         }
       }
 
-      // Get workout count from storage
-      const historyKey = `workout_history_${user.id}`;
-      const historyData = await AsyncStorage.getItem(historyKey);
-      const history = historyData ? JSON.parse(historyData) : [];
+      // Get actual workout count from user_workouts table instead of local storage
+      const { data: completedWorkouts, error: workoutsError } = await supabase
+        .from("user_workouts")
+        .select("id")
+        .eq("user_id", user.id);
 
-      // Add workout count achievement
-      if (history.length > 0) {
+      if (workoutsError) {
+        console.error("Error fetching workout count:", workoutsError);
+      }
+
+      // Calculate true workout count from the database
+      const actualWorkoutCount = completedWorkouts?.length || 0;
+
+      // Add workout count achievement with accurate count
+      if (actualWorkoutCount > 0) {
         achievements.push({
           id: "workout-count",
-          title: `${history.length} Workouts Completed`,
-          date: new Date(
-            history[history.length - 1]?.date || new Date()
-          ).toLocaleDateString("en-US", {
+          title: `${actualWorkoutCount} Workouts Completed`,
+          date: new Date().toLocaleDateString("en-US", {
             month: "short",
             day: "numeric",
             year: "numeric",
@@ -485,10 +494,13 @@ export default function ProgressScreen() {
       // Get data from actual completed workouts in user_workouts table
       const { data: workoutsData, error: workoutsError } = await supabase
         .from("user_workouts")
-        .select("workout_id, completed_at, calories")
+        .select("workout_id, completed_at, calories, duration")
         .eq("user_id", user.id);
 
       if (workoutsError) throw workoutsError;
+
+      // Get the true count of completed workouts from the database
+      const trueWorkoutCount = workoutsData?.length || 0;
 
       // Process workouts data to get counts by date
       const workoutsByDate: Record<
@@ -496,55 +508,12 @@ export default function ProgressScreen() {
         { count: number; calories: number }
       > = {};
 
-      // Process user_workouts data - this is the most accurate source
-      workoutsData?.forEach((workout) => {
-        const dateStr = new Date(workout.completed_at)
-          .toISOString()
-          .split("T")[0];
-
-        if (!workoutsByDate[dateStr]) {
-          workoutsByDate[dateStr] = { count: 0, calories: 0 };
-        }
-
-        workoutsByDate[dateStr].count += 1;
-        workoutsByDate[dateStr].calories += workout.calories || 0;
-      });
-
-      // Process user_stats data as a fallback
-      statsData?.forEach((stat) => {
-        if (
-          !workoutsByDate[stat.date] &&
-          (stat.workouts_completed > 0 || stat.calories > 0)
-        ) {
-          workoutsByDate[stat.date] = {
-            count: stat.workouts_completed || 0,
-            calories: stat.calories || 0,
-          };
-        }
-      });
-
-      // Check AsyncStorage for any real-time updates
-      const todayCalorieKey = `calories_${user.id}_${today}`;
-      const todayData = await AsyncStorage.getItem(todayCalorieKey);
-
-      if (todayData) {
-        const todayCalories = parseInt(todayData, 10);
-        if (todayCalories > 0) {
-          if (!workoutsByDate[today]) {
-            workoutsByDate[today] = { count: 1, calories: todayCalories };
-          }
-        }
-      }
-
-      // Get dates for weekly and monthly calculations
+      // Calculate the start dates for current week/month for filtering
       const currentDate = new Date();
-
-      // Calculate the start of the current week (Sunday)
       const startOfWeek = new Date(currentDate);
-      startOfWeek.setDate(currentDate.getDate() - currentDate.getDay());
+      startOfWeek.setDate(currentDate.getDate() - currentDate.getDay()); // Sunday
       startOfWeek.setHours(0, 0, 0, 0);
 
-      // Calculate the start of the current month
       const startOfMonth = new Date(
         currentDate.getFullYear(),
         currentDate.getMonth(),
@@ -552,33 +521,38 @@ export default function ProgressScreen() {
       );
       startOfMonth.setHours(0, 0, 0, 0);
 
-      // Calculate the number of workouts and active days for the week and month
+      // Count workouts for this week and month directly from completed_at timestamps
       let weeklyWorkouts = 0;
       let weeklyActiveDays = new Set<string>();
       let monthlyWorkouts = 0;
       let monthlyActiveDays = new Set<string>();
 
-      // Process all workout dates
-      Object.entries(workoutsByDate).forEach(([dateStr, data]) => {
-        const workoutDate = new Date(dateStr);
+      // Process user_workouts data - this is the most accurate source
+      workoutsData?.forEach((workout) => {
+        const workoutDate = new Date(workout.completed_at);
+        const dateStr = workoutDate.toISOString().split("T")[0];
 
-        // Only count if there was actual activity
-        if (data.count > 0 || data.calories > 0) {
-          // Check if this workout belongs to the current week
-          if (workoutDate >= startOfWeek) {
-            weeklyWorkouts += data.count;
-            weeklyActiveDays.add(dateStr);
-          }
+        if (!workoutsByDate[dateStr]) {
+          workoutsByDate[dateStr] = { count: 0, calories: 0 };
+        }
 
-          // Check if this workout belongs to the current month
-          if (workoutDate >= startOfMonth) {
-            monthlyWorkouts += data.count;
-            monthlyActiveDays.add(dateStr);
-          }
+        workoutsByDate[dateStr].count += 1;
+        workoutsByDate[dateStr].calories += workout.calories || 0;
+
+        // Check if this workout belongs to the current week
+        if (workoutDate >= startOfWeek) {
+          weeklyWorkouts += 1;
+          weeklyActiveDays.add(dateStr);
+        }
+
+        // Check if this workout belongs to the current month
+        if (workoutDate >= startOfMonth) {
+          monthlyWorkouts += 1;
+          monthlyActiveDays.add(dateStr);
         }
       });
 
-      // Update state with the correct counts
+      // Update state with accurate workout counts
       setThisWeekData({
         workoutsCompleted: weeklyWorkouts,
         daysActive: weeklyActiveDays.size,
@@ -590,17 +564,20 @@ export default function ProgressScreen() {
       });
 
       // Calculate other stats
-      const totalWorkouts = Object.values(workoutsByDate).reduce(
-        (sum, data) => sum + data.count,
-        0
-      );
+      // Use the true workout count from the database instead of aggregating from workoutsByDate
+      const totalWorkouts = trueWorkoutCount;
       const totalCalories = Object.values(workoutsByDate).reduce(
         (sum, data) => sum + data.calories,
         0
       );
 
-      // Estimate workout minutes (assume 30 minutes per workout as a default)
-      const totalMinutes = totalWorkouts * 30;
+      // Calculate actual minutes using the duration field from user_workouts
+      // For testing workouts where you skipped quickly, this will be much more accurate
+      const totalMinutes =
+        workoutsData?.reduce(
+          (sum, workout) => sum + (Number(workout.duration) || 0),
+          0
+        ) || 0;
 
       // Update statistics data
       setStatisticsData({
@@ -763,16 +740,15 @@ export default function ProgressScreen() {
           <View className="flex-row items-center">
             <View
               style={{
-                backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                backgroundColor: isDarkMode
+                  ? "rgba(139, 92, 246, 0.15)"
+                  : "rgba(99, 102, 241, 0.08)",
                 borderRadius: 10,
                 padding: 8,
-                marginRight: 10
+                marginRight: 10,
               }}
             >
-              <Activity
-                size={20}
-                color={isDarkMode ? "#8B5CF6" : "#6366F1"}
-              />
+              <Activity size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
             </View>
             <Text style={{ color: colors.text }} className="text-xl font-bold">
               Progress
@@ -810,7 +786,9 @@ export default function ProgressScreen() {
                 shadowRadius: 6,
                 elevation: 4,
                 borderWidth: 1,
-                borderColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                borderColor: isDarkMode
+                  ? "rgba(255,255,255,0.05)"
+                  : "rgba(0,0,0,0.03)",
               }}
             >
               <View className="flex-row">
@@ -819,7 +797,9 @@ export default function ProgressScreen() {
                   style={{
                     backgroundColor:
                       activeTab === "week"
-                        ? isDarkMode ? "#7C3AED" : "#6366F1"
+                        ? isDarkMode
+                          ? "#7C3AED"
+                          : "#6366F1"
                         : "transparent",
                   }}
                   onPress={() => {
@@ -836,7 +816,7 @@ export default function ProgressScreen() {
                             : isDarkMode
                             ? colors.text
                             : "#374151",
-                        fontWeight: "600"
+                        fontWeight: "600",
                       }}
                       className="text-sm"
                     >
@@ -870,17 +850,18 @@ export default function ProgressScreen() {
                     </Text>
 
                     {/* Days active indicator */}
-                    <View 
+                    <View
                       style={{
-                        backgroundColor: activeTab === "week"
-                          ? "rgba(255,255,255,0.2)"
-                          : isDarkMode
+                        backgroundColor:
+                          activeTab === "week"
+                            ? "rgba(255,255,255,0.2)"
+                            : isDarkMode
                             ? "rgba(139, 92, 246, 0.15)"
                             : "rgba(99, 102, 241, 0.08)",
                         paddingHorizontal: 8,
                         paddingVertical: 4,
                         borderRadius: 12,
-                        marginTop: 8
+                        marginTop: 8,
                       }}
                     >
                       <Text
@@ -891,11 +872,12 @@ export default function ProgressScreen() {
                               : isDarkMode
                               ? "#A78BFA"
                               : "#4F46E5",
-                          fontWeight: "500"
+                          fontWeight: "500",
                         }}
                         className="text-xs"
                       >
-                        {thisWeekData.daysActive} active {thisWeekData.daysActive === 1 ? "day" : "days"}
+                        {thisWeekData.daysActive} active{" "}
+                        {thisWeekData.daysActive === 1 ? "day" : "days"}
                       </Text>
                     </View>
                   </View>
@@ -906,7 +888,9 @@ export default function ProgressScreen() {
                   style={{
                     backgroundColor:
                       activeTab === "month"
-                        ? isDarkMode ? "#7C3AED" : "#6366F1"
+                        ? isDarkMode
+                          ? "#7C3AED"
+                          : "#6366F1"
                         : "transparent",
                   }}
                   onPress={() => {
@@ -923,7 +907,7 @@ export default function ProgressScreen() {
                             : isDarkMode
                             ? colors.text
                             : "#374151",
-                        fontWeight: "600"
+                        fontWeight: "600",
                       }}
                       className="text-sm"
                     >
@@ -957,17 +941,18 @@ export default function ProgressScreen() {
                     </Text>
 
                     {/* Days active indicator */}
-                    <View 
+                    <View
                       style={{
-                        backgroundColor: activeTab === "month"
-                          ? "rgba(255,255,255,0.2)"
-                          : isDarkMode
+                        backgroundColor:
+                          activeTab === "month"
+                            ? "rgba(255,255,255,0.2)"
+                            : isDarkMode
                             ? "rgba(139, 92, 246, 0.15)"
                             : "rgba(99, 102, 241, 0.08)",
                         paddingHorizontal: 8,
                         paddingVertical: 4,
                         borderRadius: 12,
-                        marginTop: 8
+                        marginTop: 8,
                       }}
                     >
                       <Text
@@ -978,11 +963,12 @@ export default function ProgressScreen() {
                               : isDarkMode
                               ? "#A78BFA"
                               : "#4F46E5",
-                          fontWeight: "500"
+                          fontWeight: "500",
                         }}
                         className="text-xs"
                       >
-                        {monthlyData.daysActive} active {monthlyData.daysActive === 1 ? "day" : "days"}
+                        {monthlyData.daysActive} active{" "}
+                        {monthlyData.daysActive === 1 ? "day" : "days"}
                       </Text>
                     </View>
                   </View>
@@ -999,10 +985,12 @@ export default function ProgressScreen() {
             <View className="flex-row items-center mb-5">
               <View
                 style={{
-                  backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                  backgroundColor: isDarkMode
+                    ? "rgba(139, 92, 246, 0.15)"
+                    : "rgba(99, 102, 241, 0.08)",
                   borderRadius: 8,
                   padding: 5,
-                  marginRight: 8
+                  marginRight: 8,
                 }}
               >
                 <Settings
@@ -1029,7 +1017,9 @@ export default function ProgressScreen() {
                 shadowRadius: 5,
                 elevation: 3,
                 borderWidth: 1,
-                borderColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                borderColor: isDarkMode
+                  ? "rgba(255,255,255,0.05)"
+                  : "rgba(0,0,0,0.03)",
               }}
             >
               <View className="flex-row flex-wrap">
@@ -1047,15 +1037,19 @@ export default function ProgressScreen() {
                     activeOpacity={0.8}
                   >
                     <View
-                      style={{ 
-                        backgroundColor: isDarkMode ? 'rgba(55, 65, 81, 0.4)' : 'rgba(243, 244, 246, 0.8)',
+                      style={{
+                        backgroundColor: isDarkMode
+                          ? "rgba(55, 65, 81, 0.4)"
+                          : "rgba(243, 244, 246, 0.8)",
                         borderRadius: 16,
                         padding: 16,
                       }}
                     >
                       <View
                         style={{
-                          backgroundColor: isDarkMode ? "rgba(49, 46, 129, 0.5)" : "#E0E7FF",
+                          backgroundColor: isDarkMode
+                            ? "rgba(49, 46, 129, 0.5)"
+                            : "#E0E7FF",
                           width: 40,
                           height: 40,
                           borderRadius: 12,
@@ -1084,9 +1078,9 @@ export default function ProgressScreen() {
                         </Text>
                         {statisticsData.totalWorkouts.change !== "+0%" && (
                           <Text
-                            style={{ 
+                            style={{
                               color: isDarkMode ? "#A78BFA" : "#6366F1",
-                              marginLeft: 4, 
+                              marginLeft: 4,
                             }}
                             className="text-xs font-semibold"
                           >
@@ -1109,15 +1103,19 @@ export default function ProgressScreen() {
                     activeOpacity={0.8}
                   >
                     <View
-                      style={{ 
-                        backgroundColor: isDarkMode ? 'rgba(55, 65, 81, 0.4)' : 'rgba(243, 244, 246, 0.8)',
+                      style={{
+                        backgroundColor: isDarkMode
+                          ? "rgba(55, 65, 81, 0.4)"
+                          : "rgba(243, 244, 246, 0.8)",
                         borderRadius: 16,
                         padding: 16,
                       }}
                     >
                       <View
                         style={{
-                          backgroundColor: isDarkMode ? "rgba(30, 58, 138, 0.5)" : "#DBEAFE",
+                          backgroundColor: isDarkMode
+                            ? "rgba(30, 58, 138, 0.5)"
+                            : "#DBEAFE",
                           width: 40,
                           height: 40,
                           borderRadius: 12,
@@ -1142,13 +1140,16 @@ export default function ProgressScreen() {
                           style={{ color: colors.text }}
                           className="text-2xl font-bold"
                         >
-                          {statisticsData.totalMinutes.value}
+                          {/* For very short test workouts, show the value with decimal precision */}
+                          {statisticsData.totalMinutes.value < 1
+                            ? statisticsData.totalMinutes.value.toFixed(1)
+                            : Math.round(statisticsData.totalMinutes.value)}
                         </Text>
                         {statisticsData.totalMinutes.change !== "+0%" && (
                           <Text
-                            style={{ 
+                            style={{
                               color: isDarkMode ? "#93C5FD" : "#2563EB",
-                              marginLeft: 4, 
+                              marginLeft: 4,
                             }}
                             className="text-xs font-semibold"
                           >
@@ -1174,15 +1175,19 @@ export default function ProgressScreen() {
                     activeOpacity={0.8}
                   >
                     <View
-                      style={{ 
-                        backgroundColor: isDarkMode ? 'rgba(55, 65, 81, 0.4)' : 'rgba(243, 244, 246, 0.8)',
+                      style={{
+                        backgroundColor: isDarkMode
+                          ? "rgba(55, 65, 81, 0.4)"
+                          : "rgba(243, 244, 246, 0.8)",
                         borderRadius: 16,
                         padding: 16,
                       }}
                     >
                       <View
                         style={{
-                          backgroundColor: isDarkMode ? "rgba(127, 29, 29, 0.5)" : "#FEE2E2",
+                          backgroundColor: isDarkMode
+                            ? "rgba(127, 29, 29, 0.5)"
+                            : "#FEE2E2",
                           width: 40,
                           height: 40,
                           borderRadius: 12,
@@ -1211,9 +1216,9 @@ export default function ProgressScreen() {
                         </Text>
                         {statisticsData.caloriesBurned.change !== "+0%" && (
                           <Text
-                            style={{ 
+                            style={{
                               color: isDarkMode ? "#FCA5A5" : "#DC2626",
-                              marginLeft: 4, 
+                              marginLeft: 4,
                             }}
                             className="text-xs font-semibold"
                           >
@@ -1236,15 +1241,19 @@ export default function ProgressScreen() {
                     activeOpacity={0.8}
                   >
                     <View
-                      style={{ 
-                        backgroundColor: isDarkMode ? 'rgba(55, 65, 81, 0.4)' : 'rgba(243, 244, 246, 0.8)',
+                      style={{
+                        backgroundColor: isDarkMode
+                          ? "rgba(55, 65, 81, 0.4)"
+                          : "rgba(243, 244, 246, 0.8)",
                         borderRadius: 16,
                         padding: 16,
                       }}
                     >
                       <View
                         style={{
-                          backgroundColor: isDarkMode ? "rgba(6, 78, 59, 0.5)" : "#D1FAE5",
+                          backgroundColor: isDarkMode
+                            ? "rgba(6, 78, 59, 0.5)"
+                            : "#D1FAE5",
                           width: 40,
                           height: 40,
                           borderRadius: 12,
@@ -1273,9 +1282,9 @@ export default function ProgressScreen() {
                         </Text>
                         {statisticsData.distance.change !== "+0%" && (
                           <Text
-                            style={{ 
+                            style={{
                               color: isDarkMode ? "#6EE7B7" : "#059669",
-                              marginLeft: 4, 
+                              marginLeft: 4,
                             }}
                             className="text-xs font-semibold"
                           >
@@ -1298,10 +1307,12 @@ export default function ProgressScreen() {
             <View className="flex-row items-center mb-5">
               <View
                 style={{
-                  backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                  backgroundColor: isDarkMode
+                    ? "rgba(139, 92, 246, 0.15)"
+                    : "rgba(99, 102, 241, 0.08)",
                   borderRadius: 8,
                   padding: 5,
-                  marginRight: 8
+                  marginRight: 8,
                 }}
               >
                 <Activity
@@ -1318,7 +1329,7 @@ export default function ProgressScreen() {
             </View>
 
             <View
-              style={{ 
+              style={{
                 backgroundColor: colors.card,
                 borderRadius: 24,
                 padding: 20,
@@ -1328,54 +1339,91 @@ export default function ProgressScreen() {
                 shadowRadius: 5,
                 elevation: 3,
                 borderWidth: 1,
-                borderColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                borderColor: isDarkMode
+                  ? "rgba(255,255,255,0.05)"
+                  : "rgba(0,0,0,0.03)",
               }}
             >
               <View className="mb-2">
-                <Text style={{ color: colors.secondaryText }} className="text-xs font-medium mb-4">
+                <Text
+                  style={{ color: colors.secondaryText }}
+                  className="text-xs font-medium mb-4"
+                >
                   Calories Burned Per Day
                 </Text>
               </View>
-              
-              <View className="flex-row justify-between items-end h-36 mb-4">
+
+              <View
+                className="flex-row justify-between mb-4"
+                style={{
+                  height: 140,
+                  alignItems: "flex-end",
+                  paddingHorizontal: 5,
+                  marginHorizontal: -5, // Compensate for the item width to maintain proper spacing
+                }}
+              >
                 {activityTrendsData.map((day, index) => (
-                  <View key={index} className="items-center">
-                    <View className="relative">
-                      <View 
-                        className="rounded-t-md"
-                        style={{
-                          width: 28,
-                          height: Math.max((day.value / maxValue) * 120, 4),
-                          backgroundColor: isDarkMode 
-                            ? day.value > 50 ? "#8B5CF6" : "rgba(139, 92, 246, 0.5)" 
-                            : day.value > 50 ? "#6366F1" : "rgba(99, 102, 241, 0.5)",
-                          shadowColor: day.value > 50 ? (isDarkMode ? "#8B5CF6" : "#6366F1") : "transparent",
-                          shadowOffset: { width: 0, height: 2 },
-                          shadowOpacity: 0.3,
-                          shadowRadius: 2,
-                          elevation: day.value > 50 ? 2 : 0,
-                        }}
-                      />
-                    </View>
-                    <View 
+                  <View
+                    key={index}
+                    className="items-center"
+                    style={{
+                      width: "13%",
+                      paddingHorizontal: 2, // Add padding between bars
+                    }}
+                  >
+                    <View
                       style={{
-                        paddingVertical: 6,
-                        paddingHorizontal: 8,
-                        backgroundColor: index === today.getDay() 
-                          ? isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)'
-                          : 'transparent',
+                        width: 24,
+                        height: Math.max((day.value / maxValue) * 120, 4),
+                        backgroundColor: isDarkMode
+                          ? day.value > 50
+                            ? "#8B5CF6"
+                            : "rgba(139, 92, 246, 0.5)"
+                          : day.value > 50
+                          ? "#6366F1"
+                          : "rgba(99, 102, 241, 0.5)",
+                        borderTopLeftRadius: 4,
+                        borderTopRightRadius: 4,
+                        shadowColor:
+                          day.value > 50
+                            ? isDarkMode
+                              ? "#8B5CF6"
+                              : "#6366F1"
+                            : "transparent",
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.3,
+                        shadowRadius: 2,
+                        elevation: day.value > 50 ? 2 : 0,
+                      }}
+                    />
+                    <View
+                      style={{
+                        paddingVertical: 4,
+                        paddingHorizontal: 0,
+                        backgroundColor:
+                          index === today.getDay()
+                            ? isDarkMode
+                              ? "rgba(139, 92, 246, 0.15)"
+                              : "rgba(99, 102, 241, 0.08)"
+                            : "transparent",
                         borderRadius: 12,
-                        marginTop: 8
+                        marginTop: 8,
+                        width: "100%",
+                        alignItems: "center",
                       }}
                     >
                       <Text
-                        style={{ 
-                          color: index === today.getDay() 
-                            ? isDarkMode ? "#A78BFA" : "#6366F1" 
-                            : colors.secondaryText,
-                          fontWeight: index === today.getDay() ? "600" : "400"
+                        style={{
+                          color:
+                            index === today.getDay()
+                              ? isDarkMode
+                                ? "#A78BFA"
+                                : "#6366F1"
+                              : colors.secondaryText,
+                          fontWeight: index === today.getDay() ? "600" : "400",
+                          fontSize: 11,
+                          textAlign: "center",
                         }}
-                        className="text-xs"
                       >
                         {day.day}
                       </Text>
@@ -1383,14 +1431,37 @@ export default function ProgressScreen() {
                   </View>
                 ))}
               </View>
-              
-              <View className="h-px w-full my-1" style={{ backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' }} />
-              
+
+              <View
+                className="h-px w-full my-1"
+                style={{
+                  backgroundColor: isDarkMode
+                    ? "rgba(255,255,255,0.1)"
+                    : "rgba(0,0,0,0.05)",
+                }}
+              />
+
               <View className="mt-4 flex-row justify-between">
-                <Text style={{ color: colors.secondaryText }} className="text-xs">
-                  Weekly Average: {Math.round(activityTrendsData.reduce((sum, day) => sum + day.value, 0) / 7)}%
+                <Text
+                  style={{ color: colors.secondaryText }}
+                  className="text-xs"
+                >
+                  Weekly Average:{" "}
+                  {Math.round(
+                    activityTrendsData.reduce(
+                      (sum, day) => sum + day.value,
+                      0
+                    ) / 7
+                  )}
+                  %
                 </Text>
-                <Text style={{ color: isDarkMode ? "#A78BFA" : "#6366F1", fontWeight: "500" }} className="text-xs">
+                <Text
+                  style={{
+                    color: isDarkMode ? "#A78BFA" : "#6366F1",
+                    fontWeight: "500",
+                  }}
+                  className="text-xs"
+                >
                   View Details
                 </Text>
               </View>
@@ -1406,16 +1477,15 @@ export default function ProgressScreen() {
               <View className="flex-row items-center">
                 <View
                   style={{
-                    backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                    backgroundColor: isDarkMode
+                      ? "rgba(139, 92, 246, 0.15)"
+                      : "rgba(99, 102, 241, 0.08)",
                     borderRadius: 8,
                     padding: 5,
-                    marginRight: 8
+                    marginRight: 8,
                   }}
                 >
-                  <Medal
-                    size={16}
-                    color={isDarkMode ? "#8B5CF6" : "#6366F1"}
-                  />
+                  <Medal size={16} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
                 </View>
                 <Text
                   style={{ color: colors.text }}
@@ -1425,14 +1495,20 @@ export default function ProgressScreen() {
                 </Text>
               </View>
               <TouchableOpacity>
-                <Text style={{ color: isDarkMode ? "#A78BFA" : "#6366F1", fontWeight: "500" }} className="text-xs">
+                <Text
+                  style={{
+                    color: isDarkMode ? "#A78BFA" : "#6366F1",
+                    fontWeight: "500",
+                  }}
+                  className="text-xs"
+                >
                   See All
                 </Text>
               </TouchableOpacity>
             </View>
 
             <View
-              style={{ 
+              style={{
                 backgroundColor: colors.card,
                 borderRadius: 24,
                 padding: 4,
@@ -1442,7 +1518,9 @@ export default function ProgressScreen() {
                 shadowRadius: 5,
                 elevation: 3,
                 borderWidth: 1,
-                borderColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                borderColor: isDarkMode
+                  ? "rgba(255,255,255,0.05)"
+                  : "rgba(0,0,0,0.03)",
               }}
             >
               {achievementsData.length > 0 ? (
@@ -1459,8 +1537,11 @@ export default function ProgressScreen() {
                   >
                     <View
                       style={{
-                        borderBottomWidth: index < achievementsData.length - 1 ? 1 : 0,
-                        borderBottomColor: isDarkMode ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
+                        borderBottomWidth:
+                          index < achievementsData.length - 1 ? 1 : 0,
+                        borderBottomColor: isDarkMode
+                          ? "rgba(255,255,255,0.05)"
+                          : "rgba(0,0,0,0.03)",
                         paddingVertical: 12,
                         paddingHorizontal: 16,
                       }}
@@ -1468,7 +1549,9 @@ export default function ProgressScreen() {
                     >
                       <View
                         style={{
-                          backgroundColor: isDarkMode ? "rgba(49, 46, 129, 0.5)" : "#E0E7FF",
+                          backgroundColor: isDarkMode
+                            ? "rgba(49, 46, 129, 0.5)"
+                            : "#E0E7FF",
                           width: 44,
                           height: 44,
                           borderRadius: 12,
@@ -1498,7 +1581,9 @@ export default function ProgressScreen() {
                       </View>
                       <View
                         style={{
-                          backgroundColor: isDarkMode ? 'rgba(55, 65, 81, 0.4)' : 'rgba(243, 244, 246, 0.8)',
+                          backgroundColor: isDarkMode
+                            ? "rgba(55, 65, 81, 0.4)"
+                            : "rgba(243, 244, 246, 0.8)",
                           width: 32,
                           height: 32,
                           borderRadius: 16,
@@ -1515,7 +1600,9 @@ export default function ProgressScreen() {
                 <View className="items-center py-10">
                   <View
                     style={{
-                      backgroundColor: isDarkMode ? 'rgba(139, 92, 246, 0.15)' : 'rgba(99, 102, 241, 0.08)',
+                      backgroundColor: isDarkMode
+                        ? "rgba(139, 92, 246, 0.15)"
+                        : "rgba(99, 102, 241, 0.08)",
                       width: 60,
                       height: 60,
                       borderRadius: 30,

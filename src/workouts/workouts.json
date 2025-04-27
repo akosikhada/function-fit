@@ -1,0 +1,284 @@
+[
+  {
+    "id": "w1",
+    "title": "Full Body HIIT",
+    "description": "A high-intensity interval training workout that targets your entire body, designed to burn calories and build strength.",
+    "duration": 30,
+    "calories": 320,
+    "difficulty": "intermediate",
+    "category": "hiit",
+    "image_url": "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=500&q=80",
+    "exercises": [
+      {
+        "id": "e1",
+        "name": "Jumping Jacks",
+        "duration": 45,
+        "rest": 15,
+        "sort_order": 1
+      },
+      {
+        "id": "e2",
+        "name": "Mountain Climbers",
+        "duration": 45,
+        "rest": 15,
+        "sort_order": 2
+      },
+      {
+        "id": "e3",
+        "name": "Push-ups",
+        "duration": 45,
+        "rest": 15,
+        "sort_order": 3
+      },
+      {
+        "id": "e4",
+        "name": "Burpees",
+        "duration": 45,
+        "rest": 15,
+        "sort_order": 4
+      },
+      {
+        "id": "e5",
+        "name": "Squat Jumps",
+        "duration": 45,
+        "rest": 15,
+        "sort_order": 5
+      }
+    ]
+  },
+  {
+    "id": "w2",
+    "title": "Core Crusher",
+    "description": "Focus on strengthening your core with this targeted ab workout that will help build definition and stability.",
+    "duration": 20,
+    "calories": 220,
+    "difficulty": "beginner",
+    "category": "strength",
+    "image_url": "https://images.unsplash.com/photo-1571019614242-c5c5dee9f50b?w=500&q=80",
+    "exercises": [
+      {
+        "id": "e6",
+        "name": "Crunches",
+        "duration": 45,
+        "rest": 15,
+        "sort_order": 1
+      },
+      {
+        "id": "e7",
+        "name": "Plank",
+        "duration": 60,
+        "rest": 20,
+        "sort_order": 2
+      },
+      {
+        "id": "e8",
+        "name": "Russian Twists",
+        "duration": 45,
+        "rest": 15,
+        "sort_order": 3
+      },
+      {
+        "id": "e9",
+        "name": "Leg Raises",
+        "duration": 45,
+        "rest": 15,
+        "sort_order": 4
+      },
+      {
+        "id": "e10",
+        "name": "Side Planks",
+        "duration": 30,
+        "rest": 15,
+        "sort_order": 5
+      }
+    ]
+  },
+  {
+    "id": "w3",
+    "title": "Upper Body Blast",
+    "description": "Build strength and definition in your arms, shoulders, and back with this targeted upper body workout.",
+    "duration": 25,
+    "calories": 280,
+    "difficulty": "intermediate",
+    "category": "strength",
+    "image_url": "https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=500&q=80",
+    "exercises": [
+      {
+        "id": "e11",
+        "name": "Push-ups",
+        "duration": 45,
+        "rest": 20,
+        "sort_order": 1
+      },
+      {
+        "id": "e12",
+        "name": "Tricep Dips",
+        "duration": 45,
+        "rest": 20,
+        "sort_order": 2
+      },
+      {
+        "id": "e13",
+        "name": "Shoulder Taps",
+        "duration": 45,
+        "rest": 15,
+        "sort_order": 3
+      },
+      {
+        "id": "e14",
+        "name": "Superman",
+        "duration": 30,
+        "rest": 15,
+        "sort_order": 4
+      },
+      {
+        "id": "e15",
+        "name": "Arm Circles",
+        "duration": 30,
+        "rest": 15,
+        "sort_order": 5
+      }
+    ]
+  },
+  {
+    "id": "w4",
+    "title": "Cardio Kickboxing",
+    "description": "A high-energy cardio workout that combines martial arts techniques with fast-paced cardio for maximum calorie burn.",
+    "duration": 35,
+    "calories": 400,
+    "difficulty": "advanced",
+    "category": "cardio",
+    "image_url": "https://images.unsplash.com/photo-1549576490-b0b4831ef60a?w=500&q=80",
+    "exercises": [
+      {
+        "id": "e16",
+        "name": "Jabs",
+        "duration": 45,
+        "rest": 15,
+        "sort_order": 1
+      },
+      {
+        "id": "e17",
+        "name": "Crosses",
+        "duration": 45,
+        "rest": 15,
+        "sort_order": 2
+      },
+      {
+        "id": "e18",
+        "name": "Hooks",
+        "duration": 45,
+        "rest": 15,
+        "sort_order": 3
+      },
+      {
+        "id": "e19",
+        "name": "Front Kicks",
+        "duration": 45,
+        "rest": 15,
+        "sort_order": 4
+      },
+      {
+        "id": "e20",
+        "name": "High Knees",
+        "duration": 45,
+        "rest": 15,
+        "sort_order": 5
+      }
+    ]
+  },
+  {
+    "id": "w5",
+    "title": "Gentle Yoga Flow",
+    "description": "A calming yoga sequence designed to increase flexibility, reduce stress, and improve mind-body connection. Perfect for beginners and those looking for a restorative practice.",
+    "duration": 45,
+    "calories": 180,
+    "difficulty": "beginner",
+    "category": "yoga",
+    "image_url": "https://images.unsplash.com/photo-1575052814086-f385e2e2ad1b?w=800&q=80",
+    "exercises": [
+      {
+        "id": "e21",
+        "name": "Mountain Pose",
+        "duration": 60,
+        "rest": 10,
+        "sort_order": 1
+      },
+      {
+        "id": "e22",
+        "name": "Downward-Facing Dog",
+        "duration": 60,
+        "rest": 10,
+        "sort_order": 2
+      },
+      {
+        "id": "e23",
+        "name": "Warrior I",
+        "duration": 60,
+        "rest": 10,
+        "sort_order": 3
+      },
+      {
+        "id": "e24",
+        "name": "Tree Pose",
+        "duration": 60,
+        "rest": 10,
+        "sort_order": 4
+      },
+      {
+        "id": "e25",
+        "name": "Corpse Pose",
+        "duration": 120,
+        "rest": 0,
+        "sort_order": 5
+      }
+    ]
+  },
+  {
+    "id": "w6",
+    "title": "Pilates Core Essentials",
+    "description": "Build core strength, improve posture and enhance flexibility with this focused Pilates workout suitable for all levels.",
+    "duration": 40,
+    "calories": 200,
+    "difficulty": "intermediate",
+    "category": "pilates",
+    "image_url": "https://images.unsplash.com/photo-1518611012118-696072aa579a?w=800&q=80",
+    "exercises": [
+      {
+        "id": "e26",
+        "name": "Hundred",
+        "duration": 60,
+        "rest": 20,
+        "sort_order": 1
+      },
+      {
+        "id": "e27",
+        "name": "Roll Up",
+        "duration": 45,
+        "rest": 15,
+        "sort_order": 2
+      },
+      {
+        "id": "e28",
+        "name": "Single Leg Circles",
+        "duration": 60,
+        "rest": 15,
+        "sort_order": 3
+      },
+      {
+        "id": "e29",
+        "name": "Spine Stretch Forward",
+        "duration": 45,
+        "rest": 15,
+        "sort_order": 4
+      },
+      {
+        "id": "e30",
+        "name": "Saw",
+        "duration": 45,
+        "rest": 15,
+        "sort_order": 5
+      }
+    ]
+  }
+]
