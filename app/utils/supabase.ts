@@ -12,13 +12,39 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL as string;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string;
 
+// Create a custom AsyncStorage adapter with better error handling
+const storageAdapter = {
+  getItem: async (key: string): Promise<string | null> => {
+    try {
+      return await AsyncStorage.getItem(key);
+    } catch (error) {
+      console.error(`Error reading from AsyncStorage (${key}):`, error);
+      return null;
+    }
+  },
+  setItem: async (key: string, value: string): Promise<void> => {
+    try {
+      await AsyncStorage.setItem(key, value);
+    } catch (error) {
+      console.error(`Error writing to AsyncStorage (${key}):`, error);
+    }
+  },
+  removeItem: async (key: string): Promise<void> => {
+    try {
+      await AsyncStorage.removeItem(key);
+    } catch (error) {
+      console.error(`Error removing from AsyncStorage (${key}):`, error);
+    }
+  },
+};
+
 // Supabase client (standard client with limited permissions)
 export const supabase = createClient<Database>(
   process.env.EXPO_PUBLIC_SUPABASE_URL || "",
   process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || "",
   {
     auth: {
-      storage: AsyncStorage,
+      storage: storageAdapter,
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false,
@@ -67,30 +93,37 @@ export const refreshSession = async () => {
 // Helper functions for common Supabase operations
 export const getUser = async () => {
   try {
-    const {
-      data: { user },
-      error,
-    } = await supabase.auth.getUser();
+    // First check if we have a valid session
+    const { data: sessionData } = await supabase.auth.getSession();
+
+    // If no session exists, try to restore from AsyncStorage directly as a fallback
+    if (!sessionData.session) {
+      try {
+        // Attempt to refresh the session
+        const { data: refreshData } = await supabase.auth.refreshSession();
+        if (refreshData && refreshData.session) {
+          return refreshData.user;
+        }
+      } catch (refreshError) {
+        console.warn("Session refresh failed:", refreshError);
+        // Continue to try getUser below
+      }
+    }
+
+    // Try the standard getUser approach
+    const { data, error } = await supabase.auth.getUser();
 
     if (error) {
-      if (error.message.includes("Invalid Refresh Token")) {
-        console.log("Invalid refresh token detected, attempting refresh");
-        const refreshed = await refreshSession();
-        if (refreshed) {
-          // Retry getting user after successful refresh
-          const {
-            data: { user: refreshedUser },
-          } = await supabase.auth.getUser();
-          return refreshedUser;
-        }
-        // If refresh failed, return null to trigger re-authentication
+      // Handle specific error cases
+      if (error.message.includes("Auth session missing")) {
+        console.warn("Auth session missing, returning null");
         return null;
       }
       console.error("Error getting user:", error);
       return null;
     }
 
-    return user;
+    return data.user;
   } catch (e) {
     console.error("Exception in getUser:", e);
     return null;
@@ -619,10 +652,40 @@ export const completeWorkout = async (
 
     console.log(`Existing stats found:`, existingStats);
 
+    // Check if we've already recorded a workout completion for today
+    const { data: completedWorkouts, error: completedWorkoutsError } =
+      await client
+        .from("user_workouts")
+        .select("id")
+        .eq("user_id", userId)
+        .gte("completed_at", `${today}T00:00:00.000Z`)
+        .lt("completed_at", `${today}T23:59:59.999Z`);
+
+    if (completedWorkoutsError) {
+      console.error(
+        "Error checking completed workouts:",
+        completedWorkoutsError
+      );
+    }
+
+    // If there are multiple workouts completed today, this is not the first one
+    const isFirstWorkoutToday =
+      !completedWorkouts || completedWorkouts.length <= 1;
+    console.log(
+      `Is first workout today: ${isFirstWorkoutToday}, Previous completions: ${
+        completedWorkouts?.length || 0
+      }`
+    );
+
     if (existingStats) {
-      // Update existing stats
+      // Update existing stats - only increment workouts_completed if this is the first workout today
+      // or if somehow we have incorrect count (ensure it's at least 1)
+      const newWorkoutCount = isFirstWorkoutToday
+        ? Math.min(existingStats.workouts_completed + 1, 10)
+        : Math.max(existingStats.workouts_completed, 1);
+
       const updatedValues = {
-        workouts_completed: Math.min(existingStats.workouts_completed + 1, 10),
+        workouts_completed: newWorkoutCount,
         calories: existingStats.calories + calories,
         updated_at: new Date().toISOString(),
       };

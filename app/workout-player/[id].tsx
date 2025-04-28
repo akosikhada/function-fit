@@ -394,6 +394,14 @@ export default function WorkoutPlayerScreen() {
           console.log(`*** EMERGENCY FIX: DIRECT DASHBOARD UPDATE ***`);
 
           try {
+            // Set the workout completion marker to prevent duplicate counting
+            const lastWorkoutKey = `last_workout_completion_${user.id}_${today}`;
+            await AsyncStorage.setItem(
+              lastWorkoutKey,
+              new Date().toISOString()
+            );
+            console.log(`Set workout completion marker: ${lastWorkoutKey}`);
+
             // 1. Use our dedicated emergency function for reliable updates
             await forceWorkoutProgressUpdate(
               user.id,
@@ -557,14 +565,14 @@ export default function WorkoutPlayerScreen() {
 
   // Get accent colors based on state
   const getAccentColor = () => {
-    if (isResting) return "#10B981"; // Green for rest
-    return isDarkMode ? "#8B5CF6" : "#6366F1"; // Purple/Indigo for exercise
+    if (isResting) return "#22C55E"; // Brighter green for rest
+    return isDarkMode ? "#7C3AED" : "#4F46E5"; // Brighter purple/indigo for exercise
   };
 
   // Secondary accent color (lighter version)
   const getSecondaryAccentColor = () => {
-    if (isResting) return "#D1FAE5"; // Light green for rest
-    return isDarkMode ? "#C4B5FD" : "#E0E7FF"; // Light purple/indigo for exercise
+    if (isResting) return "#DCFCE7"; // Lighter green for rest
+    return isDarkMode ? "#DDD6FE" : "#C7D2FE"; // Lighter purple/indigo for exercise
   };
 
   // Determine timer size based on screen width
@@ -748,7 +756,10 @@ export default function WorkoutPlayerScreen() {
       }}
     >
       <Stack.Screen options={{ headerShown: false }} />
-      <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
+      <StatusBar
+        barStyle={isDarkMode ? "light-content" : "dark-content"}
+        backgroundColor={isDarkMode ? "#000000" : "transparent"}
+      />
 
       {/* Toast notification */}
       {showToast && (
@@ -911,7 +922,7 @@ export default function WorkoutPlayerScreen() {
       <View
         style={{
           paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 0,
-          backgroundColor: isDarkMode ? colors.card : getAccentColor(),
+          backgroundColor: isDarkMode ? getAccentColor() : getAccentColor(),
           borderBottomLeftRadius: 30,
           borderBottomRightRadius: 30,
           overflow: "hidden",
@@ -925,8 +936,8 @@ export default function WorkoutPlayerScreen() {
         <LinearGradient
           colors={
             isDarkMode
-              ? [colors.card, "rgba(30, 30, 40, 0.9)"]
-              : [getAccentColor(), "rgba(255, 255, 255, 0.9)"]
+              ? [getAccentColor(), getAccentColor()]
+              : [getAccentColor(), getAccentColor()]
           }
           start={{ x: 0, y: 0 }}
           end={{ x: 0, y: 1 }}

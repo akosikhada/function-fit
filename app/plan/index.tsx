@@ -534,13 +534,33 @@ export default function PlanScreen() {
       );
 
       // Count completed workouts based on completed workout IDs
-      scheduledWorkouts?.forEach((workout) => {
-        if (completedWorkoutIds.has(workout.workout_id)) {
-          const workoutDate = new Date(workout.scheduled_date);
-          const dayIndex = workoutDate.getDay();
+      // This is the critical change - directly check if the workout_id matches any completed workouts,
+      // instead of trying to match by plan_id which doesn't exist in the user_workouts table
+      if (completedWorkoutIds.size > 0) {
+        scheduledWorkouts?.forEach((workout) => {
+          if (completedWorkoutIds.has(workout.workout_id)) {
+            const workoutDate = new Date(workout.scheduled_date);
+            const dayIndex = workoutDate.getDay();
+            progressByDay[dayIndex].completed += 1;
+          }
+        });
+      }
+
+      // Alternative approach: If there are no scheduled workouts but there are completed workouts,
+      // we can still show progress by using the completion date directly
+      if (scheduledWorkouts?.length === 0 && completedWorkouts?.length > 0) {
+        completedWorkouts.forEach((workout) => {
+          const completionDate = new Date(workout.completed_at);
+          const dayIndex = completionDate.getDay();
           progressByDay[dayIndex].completed += 1;
-        }
-      });
+          // Also increment total to ensure we have a valid percentage
+          if (
+            progressByDay[dayIndex].total < progressByDay[dayIndex].completed
+          ) {
+            progressByDay[dayIndex].total = progressByDay[dayIndex].completed;
+          }
+        });
+      }
 
       // Convert to array format for display
       const progressData: WeeklyProgressItem[] = Object.entries(
@@ -840,7 +860,7 @@ export default function PlanScreen() {
                       color={isDarkMode ? "#8B5CF6" : "#6366F1"}
                     />
                   </View>
-                  <View className="ml-3">
+                  <View className="ml-">
                     <Text
                       className="font-bold"
                       style={{
@@ -871,14 +891,14 @@ export default function PlanScreen() {
                 >
                   <View
                     style={{
-                      width: 38,
-                      height: 38,
-                      borderRadius: 19,
+                      width: 32,
+                      height: 32,
+                      borderRadius: 16,
                       backgroundColor: isDarkMode
                         ? "rgba(139, 92, 246, 0.2)"
                         : "rgba(99, 102, 241, 0.1)",
                       position: "absolute",
-                      left: 3,
+                      left: 1,
                       justifyContent: "center",
                       alignItems: "center",
                     }}

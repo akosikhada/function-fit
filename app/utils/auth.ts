@@ -148,6 +148,20 @@ export const signIn = async (email: string, password: string) => {
       }
     }
 
+    // Explicitly store session data for persistence
+    if (data.session) {
+      try {
+        // Ensure the session is properly persisted
+        await supabase.auth.setSession({
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+        });
+      } catch (sessionError) {
+        console.warn("Error persisting session:", sessionError);
+        // Continue anyway, not a fatal error
+      }
+    }
+
     return { user: data.user, success: true };
   } catch (error) {
     // No console.error - this just throws the error for the UI to handle
@@ -170,8 +184,32 @@ export const signOut = async () => {
 // Function to get the current session
 export const getSession = async () => {
   try {
+    // First attempt regular session retrieval
     const { data, error } = await supabase.auth.getSession();
-    if (error) throw error;
+
+    if (error) {
+      console.warn("Error getting session:", error);
+      return null;
+    }
+
+    if (!data.session) {
+      // Try to refresh the session if initial retrieval fails
+      try {
+        const { data: refreshData, error: refreshError } =
+          await supabase.auth.refreshSession();
+
+        if (refreshError) {
+          console.warn("Failed to refresh session:", refreshError);
+          return null;
+        }
+
+        return refreshData.session;
+      } catch (refreshException) {
+        console.warn("Session refresh exception:", refreshException);
+        return null;
+      }
+    }
+
     return data.session;
   } catch (error) {
     console.error("Error getting session:", error);

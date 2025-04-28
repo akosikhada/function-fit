@@ -29,12 +29,31 @@ export const forceWorkoutProgressUpdate = async (
           steps: 0,
         };
 
-    // Update with new values, ensuring we always use the highest value
+    // Check if we've already recorded this workout completion
+    const lastWorkoutKey = `last_workout_completion_${userId}_${today}`;
+    const lastWorkoutCompletion = await AsyncStorage.getItem(lastWorkoutKey);
+
+    // Determine if we should increment the workout count or use existing count
+    let updatedWorkouts;
+
+    if (lastWorkoutCompletion) {
+      // A workout was already logged today, don't increment the count again
+      console.log("Workout already logged today - not incrementing count");
+      updatedWorkouts = existingStats.workouts_completed || 0;
+    } else {
+      // This is a new workout completion, increment the count
+      console.log("New workout completion - incrementing count");
+      updatedWorkouts = Math.min(
+        (existingStats.workouts_completed || 0) + workoutCount,
+        10
+      );
+
+      // Record this workout completion to prevent duplicate counting
+      await AsyncStorage.setItem(lastWorkoutKey, new Date().toISOString());
+    }
+
+    // Update calories value, ensuring we always use the highest value
     const updatedCalories = Math.max(existingStats.calories || 0, calories);
-    const updatedWorkouts = Math.max(
-      existingStats.workouts_completed || 0,
-      workoutCount
-    );
 
     // Create stats object with updated values
     const statsObject = {
