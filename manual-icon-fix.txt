@@ -1,0 +1,37 @@
+MANUAL FIX FOR ANDROID LOGO ISSUE
+
+The issue is that you have a native Android project, which means the app.json config is being ignored for icons. The Android build process is using the native icon files located in the android/app/src/main/res/mipmap-* directories.
+
+OPTION 1: Manual replacement (quickest solution)
+
+1. Use an icon generator tool like https://easyappicon.com/ to generate Android icons from your logo.png
+   - Upload your logo and download the Android icon set
+   - Make sure to select "adaptive icons" option if available
+
+2. Replace the files in these directories with your generated icons:
+   - android/app/src/main/res/mipmap-mdpi/
+   - android/app/src/main/res/mipmap-hdpi/
+   - android/app/src/main/res/mipmap-xhdpi/
+   - android/app/src/main/res/mipmap-xxhdpi/
+   - android/app/src/main/res/mipmap-xxxhdpi/
+
+3. Replace these files in each directory:
+   - ic_launcher.webp (main app icon)
+   - ic_launcher_round.webp (rounded version)
+   - ic_launcher_foreground.webp (foreground for adaptive icons)
+
+4. Rebuild your APK with:
+   npx eas build -p android --profile apk
+
+OPTION 2: If you prefer using Expo's config system
+
+1. Delete or rename the android/ directory temporarily
+   - This will force Expo to use your app.json configuration
+   - Rename it to android-backup/ so you can restore it if needed
+
+2. Rebuild your app:
+   npx eas build -p android --profile apk
+
+3. This will generate a new android/ directory with the correct icons based on your app.json
+
+Note: This approach might lose any custom native Android code you've added, so only use if you don't have significant native customizations.
