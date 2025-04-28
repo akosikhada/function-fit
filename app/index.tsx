@@ -97,6 +97,7 @@ export default function HomeScreen() {
     visible: false,
     message: "",
     type: "success" as "success" | "error" | "info",
+    duration: 3000,
   });
 
   // Get theme colors
@@ -137,6 +138,7 @@ export default function HomeScreen() {
         visible: true,
         message: "Your fitness data has been updated",
         type: "success",
+        duration: 3000,
       });
     } catch (error) {
       console.error("Error during refresh:", error);
@@ -144,6 +146,7 @@ export default function HomeScreen() {
         visible: true,
         message: "Failed to update your data",
         type: "error",
+        duration: 3000,
       });
     } finally {
       setRefreshing(false);
@@ -153,7 +156,7 @@ export default function HomeScreen() {
   // Add an emergency refresh handler - this will be triggered on focus
   const performEmergencyRefresh = async () => {
     try {
-      console.log("EXECUTING EMERGENCY REFRESH PROTOCOL");
+      console.log("🚨 EXECUTING EMERGENCY REFRESH PROTOCOL");
 
       // Check if emergency fix is required
       const needsEmergencyFix = await AsyncStorage.getItem(
@@ -215,13 +218,91 @@ export default function HomeScreen() {
           caloriesProgress: calorieProgress,
         }));
 
+        // Make sure today's stats are saved to proper storage for future refreshes
+        try {
+          const user = await getUser();
+          if (user) {
+            const today = formatDate(new Date());
+            const statsKey = `user_stats_${user.id}_${today}`;
+
+            // Save emergency stats to primary stats key
+            const statsObject = {
+              workouts_completed: formattedWorkouts,
+              calories: formattedCalories,
+              active_minutes: 30, // Default value
+              steps: 0,
+              updated_at: new Date().toISOString(),
+              timestamp: Date.now(),
+            };
+
+            await AsyncStorage.setItem(statsKey, JSON.stringify(statsObject));
+            console.log(`Saved emergency stats to primary key: ${statsKey}`);
+
+            // Also try to update the database if possible
+            try {
+              const { data: existingStats } = await supabase
+                .from("user_stats")
+                .select("*")
+                .eq("user_id", user.id)
+                .eq("date", today)
+                .maybeSingle();
+
+              if (existingStats) {
+                // Update existing stats
+                await supabase
+                  .from("user_stats")
+                  .update({
+                    workouts_completed: formattedWorkouts,
+                    calories: formattedCalories,
+                    updated_at: new Date().toISOString(),
+                  })
+                  .eq("id", existingStats.id);
+
+                console.log("Updated database with emergency values");
+              } else {
+                // Create new stats
+                await supabase.from("user_stats").insert({
+                  user_id: user.id,
+                  date: today,
+                  workouts_completed: formattedWorkouts,
+                  calories: formattedCalories,
+                  steps: 0,
+                });
+
+                console.log(
+                  "Created new stats in database with emergency values"
+                );
+              }
+            } catch (dbError) {
+              console.error("Database update failed:", dbError);
+            }
+          }
+        } catch (storageError) {
+          console.error(
+            "Failed to save emergency stats to storage:",
+            storageError
+          );
+        }
+
         // Clear emergency flags
         await resetEmergencyFlags();
+        await AsyncStorage.removeItem("FORCE_REFRESH_HOME");
+        await AsyncStorage.removeItem("dashboard_needs_refresh");
 
-        console.log("EMERGENCY REFRESH COMPLETE");
+        // Show success toast
+        setToast({
+          visible: true,
+          message: "Dashboard stats have been updated!",
+          type: "success",
+          duration: 3000,
+        });
+
+        console.log("🚨 EMERGENCY REFRESH COMPLETE");
         return true;
       }
 
+      // If no valid emergency data was found, remove flags and try normal refresh
+      await resetEmergencyFlags();
       return false;
     } catch (error) {
       console.error("Error in emergency refresh:", error);
@@ -237,15 +318,157 @@ export default function HomeScreen() {
       const today = new Date().toISOString().split("T")[0];
       const statsKey = `user_stats_${userId}_${today}`;
 
-      // Get the cached stats
+      // Also check for specific user workout completion marker
+      const lastWorkoutKey = `last_workout_completion_${userId}_${today}`;
+      const hasCompletedWorkout = await AsyncStorage.getItem(lastWorkoutKey);
+      console.log(
+        `Check for workout completion marker: ${!!hasCompletedWorkout}`
+      );
+
+      // STEP 1: Try to find the most up-to-date stats from any source
+      let cachedStats = null;
+      let foundSource = null;
+
+      // Check all AsyncStorage keys to find any relevant workout data
+      const allKeys = await AsyncStorage.getAllKeys();
+      const relevantKeys = allKeys.filter(
+        (key) =>
+          key === statsKey ||
+          key === lastWorkoutKey ||
+          key.startsWith("workout_backup_") ||
+          key === "dashboard_needs_refresh" ||
+          key === "FORCE_REFRESH_HOME" ||
+          key === "EMERGENCY_FIX_REQUIRED"
+      );
+
+      console.log("Found relevant keys:", relevantKeys);
+
+      // First check primary stats key
       const cachedStatsStr = await AsyncStorage.getItem(statsKey);
-      if (!cachedStatsStr) {
-        console.log("No cached stats found for immediate update");
+      if (cachedStatsStr) {
+        try {
+          cachedStats = JSON.parse(cachedStatsStr);
+          foundSource = "primary";
+          console.log("Found primary cached stats:", cachedStats);
+        } catch (e) {
+          console.error("Error parsing primary stats:", e);
+        }
+      }
+
+      // If no primary stats, check all backup keys
+      if (!cachedStats) {
+        const backupKeys = allKeys.filter((key) =>
+          key.startsWith("workout_backup_")
+        );
+        console.log("Checking backup keys:", backupKeys);
+
+        // Sort backup keys by timestamp (newest first)
+        backupKeys.sort((a, b) => {
+          const timeA = parseInt(a.split("_")[2]) || 0;
+          const timeB = parseInt(b.split("_")[2]) || 0;
+          return timeB - timeA; // Newest first
+        });
+
+        // Try each backup key
+        for (const key of backupKeys) {
+          const backupStr = await AsyncStorage.getItem(key);
+          if (backupStr) {
+            try {
+              const backup = JSON.parse(backupStr);
+              if (backup.userId === userId && backup.stats) {
+                cachedStats = backup.stats;
+                foundSource = key;
+                console.log("Found backup stats in:", key, cachedStats);
+                break;
+              }
+            } catch (e) {
+              console.error(`Error parsing backup key ${key}:`, e);
+            }
+          }
+        }
+      }
+
+      // STEP 2: Check emergency flags as fallback
+      if (!cachedStats) {
+        const emergencyFix = await AsyncStorage.getItem(
+          "EMERGENCY_FIX_REQUIRED"
+        );
+
+        if (emergencyFix === "true") {
+          console.log("Using emergency flags for immediate update");
+
+          const workoutCountOverride = await AsyncStorage.getItem(
+            "WORKOUT_COUNT_OVERRIDE"
+          );
+          const caloriesOverride = await AsyncStorage.getItem(
+            "CALORIES_OVERRIDE"
+          );
+
+          if (workoutCountOverride || caloriesOverride) {
+            cachedStats = {
+              workouts_completed: workoutCountOverride
+                ? parseInt(workoutCountOverride, 10)
+                : 0,
+              calories: caloriesOverride ? parseInt(caloriesOverride, 10) : 0,
+            };
+            foundSource = "emergency";
+            console.log("Using emergency stats:", cachedStats);
+          }
+        }
+      }
+
+      // If still no data, fallback to the database via API
+      if (!cachedStats) {
+        try {
+          console.log("No local stats found, fetching from database...");
+          // Get the latest stats from database
+          const { data: latestStats } = await supabase
+            .from("user_stats")
+            .select("*")
+            .eq("user_id", userId)
+            .eq("date", today)
+            .maybeSingle();
+
+          if (latestStats) {
+            console.log("Retrieved latest stats from database:", latestStats);
+            cachedStats = latestStats;
+            foundSource = "database";
+          }
+        } catch (dbError) {
+          console.error("Error fetching from database:", dbError);
+        }
+      }
+
+      // If still no data, fallback to the current user data plus one workout (if we have evidence of completion)
+      if (!cachedStats && userData) {
+        console.log(
+          "No cached stats found, using current data + 1 workout increment"
+        );
+        const currentWorkouts = userData.workoutValue
+          ? parseInt(userData.workoutValue.split("/")[0])
+          : 0;
+        const currentCalories = userData.caloriesValue
+          ? parseInt(userData.caloriesValue.replace(/,/g, ""))
+          : 0;
+
+        cachedStats = {
+          workouts_completed: hasCompletedWorkout
+            ? Math.min(currentWorkouts + 1, 10)
+            : currentWorkouts,
+          calories: hasCompletedWorkout
+            ? currentCalories + 50
+            : currentCalories, // Add estimated calories for one workout
+        };
+        foundSource = "estimated";
+      }
+
+      // If no data available at all, cannot update
+      if (!cachedStats) {
+        console.log("No stats data found for immediate update");
         return false;
       }
 
-      const cachedStats = JSON.parse(cachedStatsStr);
-      console.log("Found cached stats for immediate update:", cachedStats);
+      console.log(`Found stats from ${foundSource} source:`, cachedStats);
 
       // Update the UI directly with cached values
       const workoutCount = Math.min(cachedStats.workouts_completed || 0, 10);
@@ -285,9 +508,24 @@ export default function HomeScreen() {
       // Show success toast
       setToast({
         visible: true,
-        message: "Workout stats updated!",
+        message:
+          "Workout stats updated!, if stats don't update in time, swipe down to refresh",
         type: "success",
+        duration: 3000,
       });
+
+      // Schedule the pull-to-refresh toast to show after a delay
+      setTimeout(() => {
+        showPullToRefreshToast();
+      }, 4000); // Show 4 seconds after the success toast
+
+      // Persist the stats we found to ensure they're available for next time
+      try {
+        await AsyncStorage.setItem(statsKey, JSON.stringify(cachedStats));
+        console.log("Saved consolidated stats to primary key");
+      } catch (e) {
+        console.error("Error saving consolidated stats:", e);
+      }
 
       console.log("Immediate stats update complete");
       setLoading(false);
@@ -301,98 +539,175 @@ export default function HomeScreen() {
   // Check for refresh flag
   useFocusEffect(
     React.useCallback(() => {
+      let isMounted = true; // Track if component is mounted
+      let loadingTimeout: NodeJS.Timeout | null = null; // Move to outer scope for cleanup
+
       const checkRefreshFlag = async () => {
         try {
           console.log("Home screen focused - checking for forced refresh");
-          setLoading(true);
 
-          // Check if workout was recently completed
+          // Only set loading to true if component is still mounted
+          if (isMounted) setLoading(true);
+
+          // Set a timeout to show pull-to-refresh toast if loading takes too long
+          loadingTimeout = setTimeout(() => {
+            if (loading && isMounted) {
+              // If still loading after 5 seconds
+              showPullToRefreshToast();
+            }
+          }, 5000);
+
+          // Get the current user ID
+          const user = await getUser();
+          if (!user) {
+            console.log("No user found on focus. Skipping refresh.");
+            if (isMounted) setLoading(false);
+            return;
+          }
+
+          // Format today's date for consistent key usage
+          const today = formatDate(new Date());
+
+          // Check all possible indicators of a recent workout
           const lastCompletion = await AsyncStorage.getItem(
             "last_workout_completion"
           );
+          const workoutCompleted = await AsyncStorage.getItem(
+            `workout_completed_${user.id}`
+          );
+          const forceRefresh = await AsyncStorage.getItem("FORCE_REFRESH_HOME");
+          const dashboardNeedsRefresh = await AsyncStorage.getItem(
+            "dashboard_needs_refresh"
+          );
+
+          // Check for the specific workout completion marker
+          const lastWorkoutKey = `last_workout_completion_${user.id}_${today}`;
+          const hasCompletedWorkoutToday = await AsyncStorage.getItem(
+            lastWorkoutKey
+          );
+
+          console.log("Focus refresh flags:", {
+            lastCompletion: !!lastCompletion,
+            workoutCompleted: !!workoutCompleted,
+            forceRefresh: !!forceRefresh,
+            dashboardNeedsRefresh: !!dashboardNeedsRefresh,
+            hasCompletedWorkoutToday: !!hasCompletedWorkoutToday,
+          });
+
           const now = Date.now();
           const lastCompletionTime = lastCompletion
             ? new Date(lastCompletion).getTime()
             : 0;
-          const timeSinceCompletion = now - lastCompletionTime;
+          const workoutCompletedTime = workoutCompleted
+            ? parseInt(workoutCompleted)
+            : 0;
+          const timeSinceCompletion =
+            now - Math.max(lastCompletionTime, workoutCompletedTime);
 
-          // If workout was completed very recently (within 30 seconds), do immediate update
-          if (lastCompletion && timeSinceCompletion < 30 * 1000) {
-            console.log(
-              "Very recent workout completion detected, applying immediate update"
+          console.log(
+            `Time since completion: ${
+              timeSinceCompletion / 1000
+            }s, Force refresh: ${!!forceRefresh}`
+          );
+
+          // If this is a very recent workout completion, always show the hint toast
+          const isRecentWorkout = timeSinceCompletion < 5 * 60 * 1000; // Within 5 minutes
+          if (
+            isRecentWorkout &&
+            (lastCompletion || workoutCompleted || hasCompletedWorkoutToday)
+          ) {
+            // Show a toast about workout completion that includes refresh hint
+            setToast({
+              visible: true,
+              message:
+                "If the loading is taking too long, swipe down to refresh",
+              type: "success",
+              duration: 6000, // Show for 6 seconds
+            });
+
+            // Remember we showed this toast
+            await AsyncStorage.setItem(
+              "last_pull_refresh_toast",
+              now.toString()
             );
-            const user = await getUser();
+          }
+
+          // Always prioritize immediate update for any indication of recent workout completion
+          let recentWorkoutActivity =
+            lastCompletion ||
+            workoutCompleted ||
+            forceRefresh ||
+            dashboardNeedsRefresh ||
+            hasCompletedWorkoutToday;
+
+          // Add a stricter time check
+          const isVeryRecent = timeSinceCompletion < 10 * 60 * 1000; // Within 10 minutes
+
+          if (recentWorkoutActivity && isVeryRecent) {
+            console.log(
+              "Recent workout activity detected, applying immediate update"
+            );
+
             if (user) {
               const success = await updateWorkoutStatsImmediate(user.id);
               if (success) {
-                // Also clear the workout completion flag to avoid redundant updates
+                // Clear all flags to avoid redundant updates
                 await AsyncStorage.removeItem("last_workout_completion");
                 await AsyncStorage.removeItem("FORCE_REFRESH_HOME");
                 await AsyncStorage.removeItem("workout_started_at");
-                setLoading(false);
+                await AsyncStorage.removeItem("dashboard_needs_refresh");
+                await AsyncStorage.removeItem(`workout_completed_${user.id}`);
+
+                // Keep the lastWorkoutKey to prevent duplicate workout counting
+                console.log("Immediate stats update successful");
+                if (isMounted) setLoading(false);
                 return;
               }
             }
           }
 
-          // If workout was completed recently (within 1 minute), use force cache refresh
-          if (lastCompletion && timeSinceCompletion < 60 * 1000) {
-            console.log(
-              "Recent workout completion detected, forcing cache refresh"
-            );
-            // Get workout start time to calculate session duration
-            const workoutStartedAt = await AsyncStorage.getItem(
-              "workout_started_at"
-            );
-            const sessionDuration = workoutStartedAt
-              ? (now - parseInt(workoutStartedAt)) / 1000
-              : 0;
-
-            // If session was very short, prioritize emergency fix
-            if (sessionDuration < 60) {
-              // Less than 1 minute
-              // Check for emergency fix first - highest priority
-              const emergencyFixDone = await performEmergencyRefresh();
-              if (emergencyFixDone) {
-                console.log("Emergency fix applied, skipping normal refresh");
-                setLoading(false);
-                await AsyncStorage.removeItem("workout_started_at");
-                return;
-              }
-            }
-
-            // Force immediate cache refresh first
-            const success = await fetchUserData(true);
-            if (success) {
-              console.log("Data refreshed successfully after workout");
-              setLoading(false);
-              await AsyncStorage.removeItem("workout_started_at");
-              return;
-            }
-          }
-
-          // Normal refresh flow
-          const forceRefresh = await AsyncStorage.getItem("FORCE_REFRESH_HOME");
-          if (forceRefresh) {
-            console.log("*** FORCED REFRESH DETECTED ***");
-            // Clear the flag
-            await AsyncStorage.setItem("FORCE_REFRESH_HOME", "");
-            // Fetch latest data
-            await fetchUserData();
+          // Check for emergency flags
+          const emergencyFix = await AsyncStorage.getItem(
+            "EMERGENCY_FIX_REQUIRED"
+          );
+          if (emergencyFix === "true") {
+            console.log("Emergency flags detected, running emergency refresh");
+            await performEmergencyRefresh();
+            if (isMounted) setLoading(false);
             return;
           }
 
-          // Basic refresh on focus - ALWAYS fetch user data when screen is focused
+          // Normal refresh flow
+          if (forceRefresh) {
+            console.log("*** FORCED REFRESH DETECTED ***");
+            // Clear the flag
+            await AsyncStorage.removeItem("FORCE_REFRESH_HOME");
+            // Fetch latest data
+            await fetchUserData(true); // true = force cache refresh
+            if (isMounted) setLoading(false);
+            return;
+          }
+
+          // Basic refresh on focus - always fetch latest data when screen is focused
           await fetchUserData();
+          if (isMounted) setLoading(false);
         } catch (error) {
           console.error("Error checking refresh flag:", error);
-        } finally {
-          // Ensure loading is set to false
-          setLoading(false);
+          // Clear timeout on error too
+          if (loadingTimeout) clearTimeout(loadingTimeout);
+          loadingTimeout = null;
+          if (isMounted) setLoading(false);
         }
       };
 
       checkRefreshFlag();
+
+      // Clean up function
+      return () => {
+        isMounted = false; // Mark as unmounted
+        // Clear any remaining timers
+        if (loadingTimeout) clearTimeout(loadingTimeout);
+      };
     }, [])
   );
 
@@ -999,6 +1314,35 @@ export default function HomeScreen() {
     },
   });
 
+  // Add this function to check and show the pull-to-refresh toast after workout completion
+  const showPullToRefreshToast = async () => {
+    // Check if we've recently shown this toast to avoid spamming
+    try {
+      const lastToastTime = await AsyncStorage.getItem(
+        "last_pull_refresh_toast"
+      );
+      const now = Date.now();
+
+      // Only show once every 8 hours max
+      if (lastToastTime && now - parseInt(lastToastTime) < 8 * 60 * 60 * 1000) {
+        return;
+      }
+
+      // Show the toast
+      setToast({
+        visible: true,
+        message: "If stats don't update in time, swipe down to refresh",
+        type: "info",
+        duration: 5000, // Show for 5 seconds
+      });
+
+      // Remember we showed it
+      await AsyncStorage.setItem("last_pull_refresh_toast", now.toString());
+    } catch (e) {
+      console.error("Error showing pull-to-refresh toast:", e);
+    }
+  };
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
       <Stack.Screen
@@ -1014,12 +1358,20 @@ export default function HomeScreen() {
 
       <View className="flex-1">
         {loading ? (
-          <View className="flex-1 justify-center items-center">
+          <View className="flex-1 justify-center items-center bg-white dark:bg-gray-900 z-50 absolute inset-0">
             <ActivityIndicator
               size="large"
               color={isDarkMode ? "#8B5CF6" : "#4F46E5"}
+              style={{ transform: [{ scale: 1.5 }] }} // Make it 50% larger
             />
-            <Text style={{ color: colors.secondaryText }} className="mt-4">
+            <Text
+              style={{
+                color: colors.secondaryText,
+                marginTop: 16,
+                fontWeight: "500",
+              }}
+              className="mt-4 text-base"
+            >
               Loading your fitness data...
             </Text>
           </View>
@@ -1047,9 +1399,7 @@ export default function HomeScreen() {
                 <View className="rounded-full overflow-hidden border-2 border-indigo-200 dark:border-indigo-900">
                   <Image
                     source={{
-                      uri:
-                        avatarUrl ||
-                        "https://randomuser.me/api/portraits/men/32.jpg",
+                      uri: avatarUrl || "",
                     }}
                     className="w-12 h-12"
                     style={{ borderRadius: 24 }}
@@ -1394,7 +1744,7 @@ export default function HomeScreen() {
           type={toast.type}
           visible={toast.visible}
           onDismiss={() => setToast((prev) => ({ ...prev, visible: false }))}
-          duration={3000}
+          duration={toast.duration || 3000}
         />
       </View>
     </SafeAreaView>
