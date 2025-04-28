@@ -114,6 +114,23 @@ export default function RootLayout() {
           }
         }
 
+        // Ensure AsyncStorage has valid auth data before checking session
+        const authStorage = await AsyncStorage.getItem("supabase.auth.token");
+        if (!authStorage) {
+          console.log("No auth storage found, skipping session retrieval");
+          setUser(null);
+          setIsLoading(false);
+          return;
+        }
+
+        // Attempt to refresh session before getting it
+        try {
+          await supabase.auth.refreshSession();
+        } catch (refreshError) {
+          console.warn("Session refresh failed during startup:", refreshError);
+          // Continue anyway to try getSession
+        }
+
         const session = await getSession();
         setUser(session?.user || null);
         setIsLoading(false);
@@ -129,6 +146,7 @@ export default function RootLayout() {
     // Set up auth state listener
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        console.log("Auth state changed:", event);
         setUser(session?.user || null);
       }
     );
