@@ -96,7 +96,39 @@ interface UserProfile {
   }[];
 }
 
-export default function SettingsScreen() {
+// Define styles as a properly typed object
+const styles = {
+  infoItem: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 8,
+  },
+  infoLabel: {
+    fontSize: 14,
+    fontWeight: "bold" as const,
+    marginRight: 8,
+  },
+  infoValue: {
+    fontSize: 14,
+  },
+  pendingEmailBadge: {
+    backgroundColor: "#FFF3CD",
+    borderRadius: 4,
+    padding: 8,
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: "#FFEEBA",
+  },
+  pendingEmailText: {
+    color: "#856404",
+    fontSize: 12,
+  },
+};
+
+function SettingsScreen() {
   const { width } = useWindowDimensions();
   const isSmallDevice = width < 380;
   const isMediumDevice = width >= 380 && width < 600;
@@ -800,6 +832,74 @@ export default function SettingsScreen() {
           `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`;
       }
 
+      // Validate height and weight to ensure they're proper numbers or empty strings
+      let heightValue = "";
+      let weightValue = "";
+
+      // Process height - ensure it's a valid number
+      if (editedProfile.height && editedProfile.height.trim() !== "") {
+        const parsedHeight = parseFloat(
+          editedProfile.height.replace(/[^\d.]/g, "")
+        );
+        if (!isNaN(parsedHeight)) {
+          heightValue = String(parsedHeight);
+        }
+      }
+
+      // Process weight - ensure it's a valid number
+      if (editedProfile.weight && editedProfile.weight.trim() !== "") {
+        const parsedWeight = parseFloat(
+          editedProfile.weight.replace(/[^\d.]/g, "")
+        );
+        if (!isNaN(parsedWeight)) {
+          weightValue = String(parsedWeight);
+        }
+      }
+
+      // Convert birthday from MM/DD/YYYY to ISO format (YYYY-MM-DDT00:00:00.000Z)
+      let birthdayValue = "";
+      if (editedProfile.birthday && editedProfile.birthday.trim()) {
+        try {
+          const dateParts = editedProfile.birthday.split("/");
+          if (dateParts.length === 3) {
+            const month = parseInt(dateParts[0]) - 1; // JS months are 0-indexed
+            const day = parseInt(dateParts[1]);
+            const year = parseInt(dateParts[2]);
+
+            // Create a Date object and get ISO string
+            const birthdayDate = new Date(year, month, day);
+            if (!isNaN(birthdayDate.getTime())) {
+              birthdayValue = birthdayDate.toISOString();
+              console.log("Converted birthday to ISO format:", birthdayValue);
+            } else {
+              console.error(
+                "Invalid date created from parts:",
+                year,
+                month,
+                day
+              );
+            }
+          } else {
+            console.error(
+              "Birthday not in expected format (MM/DD/YYYY):",
+              editedProfile.birthday
+            );
+          }
+        } catch (e) {
+          console.error("Error converting birthday to ISO format:", e);
+        }
+      }
+
+      console.log("Profile data to be updated:", {
+        username: editedProfile.username,
+        email: editedProfile.email,
+        avatar_url: finalAvatarUrl,
+        gender: editedProfile.gender || "",
+        birthday: birthdayValue,
+        height: heightValue,
+        weight: weightValue,
+      });
+
       // Prepare profile data for database update
       const profileData = {
         username: editedProfile.username,
@@ -807,10 +907,13 @@ export default function SettingsScreen() {
         avatar_url: finalAvatarUrl,
         email: editedProfile.email,
         gender: editedProfile.gender || "",
-        height: editedProfile.height || "",
-        weight: editedProfile.weight || "",
+        height: heightValue,
+        weight: weightValue,
+        birthday: birthdayValue, // Now in ISO format for the database
         updated_at: new Date().toISOString(),
       };
+
+      console.log("Sending profile data to database:", profileData);
 
       // Update profile in the database
       const result = await updateUserProfile(user.id, profileData);
@@ -825,6 +928,11 @@ export default function SettingsScreen() {
         ...userProfile,
         ...editedProfile,
         avatarUrl: finalAvatarUrl,
+        // Format height and weight with units for display
+        height: heightValue ? `${heightValue} cm` : "",
+        weight: weightValue ? `${weightValue} kg` : "",
+        // Keep the display format of birthday as MM/DD/YYYY
+        birthday: editedProfile.birthday || "",
       };
 
       // Update state immediately for a responsive UI
@@ -977,6 +1085,7 @@ export default function SettingsScreen() {
 
           <View className="flex-row border-t border-gray-200 dark:border-gray-800">
             <TouchableOpacity
+              activeOpacity={0.7}
               onPress={() => setShowLogoutModal(false)}
               className="flex-1 p-4 border-r border-gray-200 dark:border-gray-800"
             >
@@ -988,6 +1097,7 @@ export default function SettingsScreen() {
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
+              activeOpacity={0.7}
               onPress={async () => {
                 setShowLogoutModal(false);
                 try {
@@ -1186,6 +1296,27 @@ export default function SettingsScreen() {
     }
   };
 
+  // Fix the theme selection functions
+  const handleThemeSelect = (theme: string) => {
+    setTheme(theme as any);
+    setThemeModalVisible(false);
+  };
+
+  // Fix the avatar selection functions
+  const avatarOptions = [
+    `https://api.dicebear.com/7.x/avataaars/svg?seed=${Math.random()}`,
+    `https://api.dicebear.com/7.x/avataaars/svg?seed=${Math.random()}`,
+    `https://api.dicebear.com/7.x/avataaars/svg?seed=${Math.random()}`,
+    `https://api.dicebear.com/7.x/avataaars/svg?seed=${Math.random()}`,
+  ];
+
+  const handleAvatarSelect = (avatarUrl: string) => {
+    setEditedProfile({
+      ...editedProfile,
+      avatarUrl,
+    });
+  };
+
   return (
     <SafeAreaView
       style={{ backgroundColor: colors.background }}
@@ -1370,7 +1501,7 @@ export default function SettingsScreen() {
                     {userProfile?.stats.totalHours
                       ? userProfile.stats.totalHours < 1
                         ? userProfile.stats.totalHours.toFixed(1)
-                        : Math.round(userProfile.stats.totalHours)
+                        : userProfile.stats.totalHours.toFixed(1)
                       : 0}
                     h
                   </Text>
@@ -1671,7 +1802,6 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* App Version */}
         <View className="items-center mt-6 mb-4">
           <Text style={{ color: colors.secondaryText }} className="text-xs">
             Function Fit v1.0
@@ -1712,135 +1842,6 @@ export default function SettingsScreen() {
           onDismiss={() => setShowError(false)}
         />
       )}
-
-      {/* Theme Selection Modal */}
-      <Modal
-        visible={themeModalVisible}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setThemeModalVisible(false)}
-      >
-        <View className="flex-1 justify-center items-center bg-black/50">
-          <View
-            style={{ backgroundColor: colors.card }}
-            className="w-5/6 rounded-2xl p-6"
-          >
-            <View className="flex-row justify-between items-center mb-4">
-              <Text
-                style={{ color: colors.text }}
-                className="text-xl font-bold"
-              >
-                Choose Theme
-              </Text>
-              <TouchableOpacity onPress={() => setThemeModalVisible(false)}>
-                <X size={24} color={colors.secondaryText} />
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity
-              onPress={() => {
-                setTheme("light");
-                setThemeModalVisible(false);
-              }}
-              className="flex-row items-center justify-between py-4 border-b border-gray-200"
-            >
-              <View className="flex-row items-center">
-                <Sun size={20} color="#6366F1" />
-                <Text style={{ color: colors.text }} className="text-base ml-3">
-                  Light
-                </Text>
-              </View>
-              {currentTheme === "light" && <Check size={20} color="#6366F1" />}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => {
-                setTheme("dark");
-                setThemeModalVisible(false);
-              }}
-              className="flex-row items-center justify-between py-4 border-b border-gray-200"
-            >
-              <View className="flex-row items-center">
-                <Moon size={20} color="#8B5CF6" />
-                <Text style={{ color: colors.text }} className="text-base ml-3">
-                  Dark
-                </Text>
-              </View>
-              {currentTheme === "dark" && <Check size={20} color="#8B5CF6" />}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => {
-                // @ts-ignore
-                setTheme("system");
-                setThemeModalVisible(false);
-              }}
-              className="flex-row items-center justify-between py-4"
-            >
-              <View className="flex-row items-center">
-                <Smartphone size={20} color={colors.text} />
-                <Text style={{ color: colors.text }} className="text-base ml-3">
-                  System Default
-                </Text>
-              </View>
-              {/* @ts-ignore */}
-              {currentTheme === "system" && (
-                <Check size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Gender Selection Modal */}
-      <Modal
-        visible={showGenderModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowGenderModal(false)}
-      >
-        <View className="flex-1 justify-center items-center bg-black/50">
-          <View
-            style={{ backgroundColor: colors.card }}
-            className="w-5/6 rounded-2xl p-6"
-          >
-            <View className="flex-row justify-between items-center mb-4">
-              <Text
-                style={{ color: colors.text }}
-                className="text-xl font-bold"
-              >
-                Select Gender
-              </Text>
-              <TouchableOpacity onPress={() => setShowGenderModal(false)}>
-                <X size={24} color={colors.secondaryText} />
-              </TouchableOpacity>
-            </View>
-
-            {["Male", "Female", "Prefer not to say"].map((gender) => (
-              <TouchableOpacity
-                key={gender}
-                onPress={() => {
-                  const updatedProfile = {
-                    ...editedProfile,
-                    gender,
-                  };
-                  setEditedProfile(updatedProfile);
-                  saveEditProgress(updatedProfile);
-                  setShowGenderModal(false);
-                }}
-                className="flex-row items-center justify-between py-4 border-b border-gray-200"
-              >
-                <Text style={{ color: colors.text }} className="text-base">
-                  {gender}
-                </Text>
-                {editedProfile.gender === gender && (
-                  <Check size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
-                )}
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      </Modal>
 
       {/* Profile Edit Modal */}
       <Modal
@@ -1906,6 +1907,7 @@ export default function SettingsScreen() {
                       borderRadius: 20,
                     }}
                     onPress={handleChangePhoto}
+                    activeOpacity={0.8}
                   >
                     <Camera size={16} color="#FFFFFF" />
                   </TouchableOpacity>
@@ -2024,76 +2026,6 @@ export default function SettingsScreen() {
                   />
                 </View>
 
-                {/* Age (Auto-calculated) */}
-                <View>
-                  <Text
-                    style={{ color: colors.secondaryText }}
-                    className="mb-2 font-medium"
-                  >
-                    Age
-                  </Text>
-                  <View
-                    style={{
-                      borderColor: isDarkMode
-                        ? "rgba(255,255,255,0.1)"
-                        : "rgba(0,0,0,0.1)",
-                      borderWidth: 1,
-                      borderRadius: 12,
-                      backgroundColor: isDarkMode
-                        ? "rgba(255,255,255,0.05)"
-                        : "rgba(0,0,0,0.03)",
-                    }}
-                    className="flex-row items-center overflow-hidden"
-                  >
-                    <View className="p-3">
-                      <Clock
-                        size={20}
-                        color={isDarkMode ? "#8B5CF6" : "#6366F1"}
-                      />
-                    </View>
-                    <Text
-                      style={{
-                        color: colors.text,
-                        flex: 1,
-                        paddingVertical: 14,
-                        paddingHorizontal: 5,
-                      }}
-                    >
-                      {(() => {
-                        try {
-                          if (!editedProfile.birthday)
-                            return "Auto-calculated from birthday";
-                          const dobParts = editedProfile.birthday.split("/");
-                          if (dobParts.length !== 3)
-                            return "Invalid date format";
-
-                          const dob = new Date(
-                            parseInt(dobParts[2]), // Year
-                            parseInt(dobParts[0]) - 1, // Month (0-based)
-                            parseInt(dobParts[1]) // Day
-                          );
-
-                          const now = new Date();
-                          let age = now.getFullYear() - dob.getFullYear();
-
-                          // Check if birthday hasn't occurred yet this year
-                          if (
-                            now.getMonth() < dob.getMonth() ||
-                            (now.getMonth() === dob.getMonth() &&
-                              now.getDate() < dob.getDate())
-                          ) {
-                            age--;
-                          }
-
-                          return isNaN(age) ? "Invalid date" : `${age} years`;
-                        } catch (e) {
-                          return "Error calculating age";
-                        }
-                      })()}
-                    </Text>
-                  </View>
-                </View>
-
                 {/* Gender (Selection) */}
                 <View style={{ marginTop: 8 }}>
                   <Text
@@ -2103,6 +2035,7 @@ export default function SettingsScreen() {
                     Gender
                   </Text>
                   <TouchableOpacity
+                    activeOpacity={0.8}
                     onPress={() => setShowGenderModal(true)}
                     style={{
                       borderColor: isDarkMode
@@ -2223,36 +2156,127 @@ export default function SettingsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Theme Selection Modal */}
+      <Modal
+        visible={themeModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setThemeModalVisible(false)}
+      >
+        <View className="flex-1 justify-center items-center bg-black/50">
+          <View
+            style={{ backgroundColor: colors.card }}
+            className="w-5/6 rounded-2xl p-6"
+          >
+            <View className="flex-row justify-between items-center mb-4">
+              <Text
+                style={{ color: colors.text }}
+                className="text-xl font-bold"
+              >
+                Choose Theme
+              </Text>
+              <TouchableOpacity onPress={() => setThemeModalVisible(false)}>
+                <X size={24} color={colors.secondaryText} />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              onPress={() => handleThemeSelect("light")}
+              className="flex-row items-center justify-between py-4 border-b border-gray-200"
+            >
+              <View className="flex-row items-center">
+                <Sun size={20} color="#6366F1" />
+                <Text style={{ color: colors.text }} className="text-base ml-3">
+                  Light
+                </Text>
+              </View>
+              {currentTheme === "light" && <Check size={20} color="#6366F1" />}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => handleThemeSelect("dark")}
+              className="flex-row items-center justify-between py-4 border-b border-gray-200"
+            >
+              <View className="flex-row items-center">
+                <Moon size={20} color="#8B5CF6" />
+                <Text style={{ color: colors.text }} className="text-base ml-3">
+                  Dark
+                </Text>
+              </View>
+              {currentTheme === "dark" && <Check size={20} color="#8B5CF6" />}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => handleThemeSelect("system")}
+              className="flex-row items-center justify-between py-4"
+            >
+              <View className="flex-row items-center">
+                <Smartphone size={20} color={colors.text} />
+                <Text style={{ color: colors.text }} className="text-base ml-3">
+                  System Default
+                </Text>
+              </View>
+              {/* @ts-ignore - System theme is supported but not in the type */}
+              {currentTheme === "system" && (
+                <Check size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Gender Selection Modal */}
+      <Modal
+        visible={showGenderModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowGenderModal(false)}
+      >
+        <View className="flex-1 justify-center items-center bg-black/50">
+          <View
+            style={{ backgroundColor: colors.card }}
+            className="w-5/6 rounded-2xl p-6"
+          >
+            <View className="flex-row justify-between items-center mb-4">
+              <Text
+                style={{ color: colors.text }}
+                className="text-xl font-bold"
+              >
+                Select Gender
+              </Text>
+              <TouchableOpacity onPress={() => setShowGenderModal(false)}>
+                <X size={24} color={colors.secondaryText} />
+              </TouchableOpacity>
+            </View>
+
+            {["Male", "Female", "Prefer not to say"].map((gender) => (
+              <TouchableOpacity
+                key={gender}
+                onPress={() => {
+                  const updatedProfile = {
+                    ...editedProfile,
+                    gender,
+                  };
+                  setEditedProfile(updatedProfile);
+                  saveEditProgress(updatedProfile);
+                  setShowGenderModal(false);
+                }}
+                className="flex-row items-center justify-between py-4 border-b border-gray-200"
+              >
+                <Text style={{ color: colors.text }} className="text-base">
+                  {gender}
+                </Text>
+                {editedProfile.gender === gender && (
+                  <Check size={20} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
-const styles = {
-  infoItem: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
-    padding: 8,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 8,
-  },
-  infoLabel: {
-    fontSize: 14,
-    fontWeight: "bold" as const,
-    marginRight: 8,
-  },
-  infoValue: {
-    fontSize: 14,
-  },
-  pendingEmailBadge: {
-    backgroundColor: "#FFF3CD",
-    borderRadius: 4,
-    padding: 8,
-    marginTop: 4,
-    borderWidth: 1,
-    borderColor: "#FFEEBA",
-  },
-  pendingEmailText: {
-    color: "#856404",
-    fontSize: 12,
-  },
-};
+
+export default SettingsScreen;
