@@ -16,6 +16,14 @@ const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string;
 const storageAdapter = {
   getItem: async (key: string): Promise<string | null> => {
     try {
+      // For debugging
+      if (
+        key ===
+        "sb-" + process.env.EXPO_PUBLIC_SUPABASE_URL + "-auth-token"
+      ) {
+        const value = await AsyncStorage.getItem(key);
+        console.log("Reading auth token from storage, exists:", !!value);
+      }
       return await AsyncStorage.getItem(key);
     } catch (error) {
       console.error(`Error reading from AsyncStorage (${key}):`, error);
@@ -24,6 +32,13 @@ const storageAdapter = {
   },
   setItem: async (key: string, value: string): Promise<void> => {
     try {
+      // For debugging
+      if (
+        key ===
+        "sb-" + process.env.EXPO_PUBLIC_SUPABASE_URL + "-auth-token"
+      ) {
+        console.log("Saving auth token to storage");
+      }
       await AsyncStorage.setItem(key, value);
     } catch (error) {
       console.error(`Error writing to AsyncStorage (${key}):`, error);
@@ -889,21 +904,23 @@ export const updateUserProfile = async (
       )}`;
     }
 
-    // Create update object with safe fields first
+    // Create update object with all fields in a single update operation
     const updateObj: any = {
       username: username,
       avatar_url: finalAvatarUrl,
       updated_at: new Date().toISOString(),
     };
 
-    // Only add optional fields if they exist in the database schema
-    // These will be added through the migration in production
-    try {
-      // Update height and weight which should exist in the schema
-      if (height !== undefined) updateObj.height = height;
-      if (weight !== undefined) updateObj.weight = weight;
+    // Add all optional fields to the primary update object
+    if (height !== undefined) updateObj.height = height;
+    if (weight !== undefined) updateObj.weight = weight;
+    if (birthday !== undefined) updateObj.birthday = birthday;
+    if (gender !== undefined) updateObj.gender = gender;
 
-      // Try to update with just the safe fields
+    console.log("Updating user profile with data:", updateObj);
+
+    // Try to update with all fields at once
+    try {
       const { data, error } = await supabase
         .from("users")
         .update(updateObj)
@@ -926,24 +943,6 @@ export const updateUserProfile = async (
       } catch (storageError) {
         console.error("Failed to cache profile data:", storageError);
         // Non-fatal error, continue
-      }
-
-      // Now try to update with birthday and gender in a separate call
-      // This will work after migration but fail gracefully before
-      if (birthday !== undefined || gender !== undefined) {
-        const extraFields: any = {};
-        if (birthday !== undefined) extraFields.birthday = birthday;
-        if (gender !== undefined) extraFields.gender = gender;
-
-        try {
-          await supabase.from("users").update(extraFields).eq("id", userId);
-        } catch (extraFieldsError: any) {
-          // Log but don't throw - these fields may not exist yet
-          console.log(
-            "Notice: Could not update optional profile fields (birthday/gender):",
-            extraFieldsError.message
-          );
-        }
       }
 
       // Only try to update email if it's provided and the auth user data exists
