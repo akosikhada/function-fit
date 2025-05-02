@@ -115,7 +115,9 @@ export default function RootLayout() {
         }
 
         // Ensure AsyncStorage has valid auth data before checking session
-        const authStorage = await AsyncStorage.getItem("supabase.auth.token");
+        const authStorage = await AsyncStorage.getItem(
+          "sb-" + process.env.EXPO_PUBLIC_SUPABASE_URL + "-auth-token"
+        );
         if (!authStorage) {
           console.log("No auth storage found, skipping session retrieval");
           setUser(null);

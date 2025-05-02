@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
-import { View, Text, useColorScheme } from "react-native";
-import { Timer, Flame, Clock } from "lucide-react-native";
+import { View, Text } from "react-native";
+import { Clock, Flame, Activity } from "lucide-react-native";
 import ThemeModule from "../utils/theme";
 
 interface DailyProgressSummaryProps {
@@ -11,6 +11,7 @@ interface DailyProgressSummaryProps {
   stepsValue?: string;
   caloriesValue?: string;
   workoutValue?: string;
+  activeMinutesValue?: string;
 }
 
 const DailyProgressSummary = ({
@@ -21,6 +22,7 @@ const DailyProgressSummary = ({
   stepsValue = "0",
   caloriesValue = "0",
   workoutValue = "0/0", // Format can be "X/Y" for workout count or "XXm/YYm" for minutes
+  activeMinutesValue = "0",
 }: DailyProgressSummaryProps) => {
   const { theme: currentTheme, colors } = ThemeModule.useTheme();
   const isDarkMode = currentTheme === "dark";
@@ -31,8 +33,9 @@ const DailyProgressSummary = ({
       caloriesValue,
       workoutValue,
       workoutProgress,
+      activeMinutesValue,
     });
-  }, [caloriesValue, workoutValue, workoutProgress]);
+  }, [caloriesValue, workoutValue, workoutProgress, activeMinutesValue]);
 
   // Parse and format the workout value for proper display
   const formatWorkoutValue = () => {
@@ -58,8 +61,8 @@ const DailyProgressSummary = ({
   // Format the display of the goal text based on the value type
   const getWorkoutGoalText = () => {
     if (workoutValue.includes("/")) {
-      // If it shows workouts count like "2/10", the goal is workouts
-      return "Workouts";
+      // If it shows workouts count, get the goal from the denominator
+      return "Completed";
     }
     return "Active Time";
   };
@@ -70,13 +73,13 @@ const DailyProgressSummary = ({
       // If it shows workouts count, get the goal from the denominator
       const parts = workoutValue.split("/");
       if (parts.length > 1) {
-        return `Goal: ${parts[1]}`;
+        return `${parts[1]}`;
       }
       // Default goal if not properly formatted
-      return "Goal: 10";
+      return "";
     }
     // For active time, use a fixed goal
-    return "Goal: 60m";
+    return "";
   };
 
   // Get current value for display with proper highlighting
@@ -90,10 +93,14 @@ const DailyProgressSummary = ({
     return workoutValue;
   };
 
-  // Format time value from steps
+  // Format time value with active minutes
   const formatTimeValue = () => {
-    // Convert steps to minutes (approximately)
-    // Using a simple formula: 1000 steps = 10 minutes
+    // First check if we have actual active minutes data
+    if (activeMinutesValue && parseInt(activeMinutesValue) > 0) {
+      return `${activeMinutesValue}m`;
+    }
+
+    // Fall back to estimating from steps if no active minutes
     const numericSteps = parseInt(stepsValue.replace(/,/g, ""), 10) || 0;
     const timeInMinutes = Math.round(numericSteps / 100);
     return `${timeInMinutes}m`;
@@ -114,30 +121,31 @@ const DailyProgressSummary = ({
         <View className="items-center">
           <View
             style={{
-              backgroundColor: isDarkMode ? "#0F766E" : "#CCFBF1",
+              backgroundColor: isDarkMode
+                ? "rgba(30, 58, 138, 0.5)"
+                : "#DBEAFE",
             }}
             className="w-12 h-12 rounded-full items-center justify-center mb-2"
           >
-            <Timer size={22} color={isDarkMode ? "#2DD4BF" : "#0D9488"} />
+            <Clock size={22} color={isDarkMode ? "#60A5FA" : "#3B82F6"} />
           </View>
           <Text
-            style={{ color: isDarkMode ? "#2DD4BF" : "#0D9488" }}
+            style={{ color: isDarkMode ? "#60A5FA" : "#3B82F6" }}
             className="font-bold text-base"
           >
             {formatTimeValue()}
           </Text>
-          <Text style={{ color: colors.secondaryText }} className="text-xs">
+          <Text style={{ color: colors.secondaryText }} className="font-bold">
             Active Time
-          </Text>
-          <Text style={{ color: colors.secondaryText }} className="text-xs">
-            Goal: 120m
           </Text>
         </View>
 
         <View className="items-center">
           <View
             style={{
-              backgroundColor: isDarkMode ? "#7F1D1D" : "#FEE2E2",
+              backgroundColor: isDarkMode
+                ? "rgba(127, 29, 29, 0.5)"
+                : "#FEE2E2",
             }}
             className="w-12 h-12 rounded-full items-center justify-center mb-2"
           >
@@ -149,36 +157,29 @@ const DailyProgressSummary = ({
           >
             {caloriesValue}
           </Text>
-          <Text style={{ color: colors.secondaryText }} className="text-xs">
-            Calories
-          </Text>
-          <Text style={{ color: colors.secondaryText }} className="text-xs">
-            Goal: 600
+          <Text style={{ color: colors.secondaryText }} className="font-bold">
+            Burned
           </Text>
         </View>
 
         <View className="items-center">
           <View
             style={{
-              backgroundColor: isDarkMode ? "#1E3A8A" : "#DBEAFE",
+              backgroundColor: isDarkMode
+                ? "rgba(49, 46, 129, 0.5)"
+                : "#E0E7FF",
             }}
             className="w-12 h-12 rounded-full items-center justify-center mb-2"
           >
-            <Clock size={22} color={isDarkMode ? "#60A5FA" : "#3B82F6"} />
+            <Activity size={22} color={isDarkMode ? "#8B5CF6" : "#6366F1"} />
           </View>
           {workoutValue.includes("/") ? (
             <View className="flex-row items-baseline">
               <Text
-                style={{ color: isDarkMode ? "#60A5FA" : "#3B82F6" }}
+                style={{ color: isDarkMode ? "#8B5CF6" : "#6366F1" }}
                 className="font-bold text-base"
               >
                 {getCurrentWorkoutValue()}
-              </Text>
-              <Text
-                style={{ color: colors.secondaryText }}
-                className="text-xs ml-1"
-              >
-                /{workoutValue.split("/")[1]}
               </Text>
             </View>
           ) : (
@@ -189,11 +190,8 @@ const DailyProgressSummary = ({
               {formatWorkoutValue()}
             </Text>
           )}
-          <Text style={{ color: colors.secondaryText }} className="text-xs">
+          <Text style={{ color: colors.secondaryText }} className="font-bold">
             {getWorkoutGoalText()}
-          </Text>
-          <Text style={{ color: colors.secondaryText }} className="text-xs">
-            {getWorkoutGoalValue()}
           </Text>
         </View>
       </View>

@@ -34,6 +34,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import BottomNavigation from "../components/BottomNavigation";
 import ThemeModule from "../utils/theme";
 import { supabase } from "../utils/supabase";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const { useTheme } = ThemeModule;
 
@@ -407,6 +408,21 @@ export default function PlanScreen() {
       // Get today's date and create dates for the entire week
       const today = new Date();
 
+      // First, fetch all completed workouts for this user
+      const { data: completedWorkouts, error: completedError } = await supabase
+        .from("user_workouts")
+        .select("workout_id")
+        .eq("user_id", user.id);
+
+      if (completedError) {
+        console.error("Error fetching completed workouts:", completedError);
+      }
+
+      // Create a Set of completed workout IDs for faster lookup
+      const completedWorkoutIds = new Set(
+        completedWorkouts?.map((cw) => cw.workout_id) || []
+      );
+
       // Fetch workout plans for each day of the week
       for (let i = 0; i < 7; i++) {
         try {
@@ -421,7 +437,7 @@ export default function PlanScreen() {
               duration: `${plan.workouts.duration || 30} mins`,
               intensity: plan.workouts.difficulty || "Medium",
               calories: `${plan.workouts.calories || 0}`,
-              completed: false, // We could check if it's completed in a real app
+              completed: completedWorkoutIds.has(plan.workouts.id), // Check if this workout is completed
               imageUrl:
                 plan.workouts.image_url ||
                 "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=500&q=80",
@@ -471,46 +487,67 @@ export default function PlanScreen() {
       const startDateStr = startDate.toISOString().split("T")[0];
       const endDateStr = endDate.toISOString().split("T")[0];
 
-      // Query for all scheduled workouts in the date range
-      const { data: scheduledWorkouts, error: scheduleError } = await supabase
-        .from("workout_plans")
-        .select(
-          `
-					id,
-					scheduled_date,
-					workout_id
-				`
-        )
-        .eq("user_id", user.id)
-        .gte("scheduled_date", startDateStr)
-        .lte("scheduled_date", endDateStr)
-        .order("scheduled_date", { ascending: true });
+      console.log(
+        `Fetching weekly progress from ${startDateStr} to ${endDateStr}`
+      );
 
-      if (scheduleError) throw scheduleError;
-
-      // Query for completed workouts in the user_workouts table
+      // DIRECT APPROACH: First, get ALL completed workouts for the week
       const { data: completedWorkouts, error: completedError } = await supabase
         .from("user_workouts")
         .select(
           `
-					id,
-					workout_id,
-					completed_at
-				`
+          id,
+          workout_id,
+          completed_at
+        `
         )
         .eq("user_id", user.id)
         .gte("completed_at", startDate.toISOString())
         .lte("completed_at", endDate.toISOString());
 
-      if (completedError) throw completedError;
+      if (completedError) {
+        console.error("Error fetching completed workouts:", completedError);
+        throw completedError;
+      }
 
-      // Organize data by day of week
+      console.log(
+        `Found ${completedWorkouts?.length || 0} completed workouts this week`
+      );
+
+      if (completedWorkouts && completedWorkouts.length > 0) {
+        console.log("Sample completed workout:", completedWorkouts[0]);
+      }
+
+      // Second, get scheduled workouts for targets
+      const { data: scheduledWorkouts, error: scheduleError } = await supabase
+        .from("workout_plans")
+        .select(
+          `
+          id,
+          scheduled_date,
+          workout_id
+        `
+        )
+        .eq("user_id", user.id)
+        .gte("scheduled_date", startDateStr)
+        .lte("scheduled_date", endDateStr);
+
+      if (scheduleError) {
+        console.error("Error fetching scheduled workouts:", scheduleError);
+        throw scheduleError;
+      }
+
+      console.log(
+        `Found ${scheduledWorkouts?.length || 0} scheduled workouts this week`
+      );
+
+      // Initialize progress data for each day of the week
       const progressByDay: Record<
         number,
         { completed: number; total: number; date: string }
       > = {};
 
-      // Initialize with empty counts for all days
+      // Initialize empty counts for all days
       for (let i = 0; i < 7; i++) {
         const dayDate = new Date(startDate);
         dayDate.setDate(startDate.getDate() + i);
@@ -521,41 +558,25 @@ export default function PlanScreen() {
         };
       }
 
-      // Count scheduled workouts by day
-      scheduledWorkouts?.forEach((workout) => {
-        const workoutDate = new Date(workout.scheduled_date);
-        const dayIndex = workoutDate.getDay();
-        progressByDay[dayIndex].total += 1;
-      });
-
-      // Get completed workout IDs
-      const completedWorkoutIds = new Set(
-        completedWorkouts?.map((workout) => workout.workout_id) || []
-      );
-
-      // Count completed workouts based on completed workout IDs
-      // This is the critical change - directly check if the workout_id matches any completed workouts,
-      // instead of trying to match by plan_id which doesn't exist in the user_workouts table
-      if (completedWorkoutIds.size > 0) {
-        scheduledWorkouts?.forEach((workout) => {
-          if (completedWorkoutIds.has(workout.workout_id)) {
-            const workoutDate = new Date(workout.scheduled_date);
-            const dayIndex = workoutDate.getDay();
-            progressByDay[dayIndex].completed += 1;
-          }
+      // Count scheduled workouts as targets
+      if (scheduledWorkouts && scheduledWorkouts.length > 0) {
+        scheduledWorkouts.forEach((workout) => {
+          const workoutDate = new Date(workout.scheduled_date);
+          const dayIndex = workoutDate.getDay();
+          progressByDay[dayIndex].total += 1;
         });
       }
 
-      // Alternative approach: If there are no scheduled workouts but there are completed workouts,
-      // we can still show progress by using the completion date directly
-      if (scheduledWorkouts?.length === 0 && completedWorkouts?.length > 0) {
+      // Count completed workouts directly
+      if (completedWorkouts && completedWorkouts.length > 0) {
         completedWorkouts.forEach((workout) => {
           const completionDate = new Date(workout.completed_at);
           const dayIndex = completionDate.getDay();
           progressByDay[dayIndex].completed += 1;
-          // Also increment total to ensure we have a valid percentage
+
+          // If there are more completed than scheduled, adjust the target
           if (
-            progressByDay[dayIndex].total < progressByDay[dayIndex].completed
+            progressByDay[dayIndex].completed > progressByDay[dayIndex].total
           ) {
             progressByDay[dayIndex].total = progressByDay[dayIndex].completed;
           }
@@ -574,6 +595,12 @@ export default function PlanScreen() {
         date: data.date,
       }));
 
+      console.log(
+        "Weekly progress data:",
+        JSON.stringify(progressData, null, 2)
+      );
+
+      // Update the state with new progress data
       setWeeklyProgress(progressData);
 
       // Calculate overall weekly progress percentage
@@ -585,8 +612,15 @@ export default function PlanScreen() {
         (sum, day) => sum + day.target,
         0
       );
+
+      console.log(
+        `Total completed: ${totalCompleted}, Total target: ${totalTarget}`
+      );
+
       const progressPercent =
         totalTarget > 0 ? Math.round((totalCompleted / totalTarget) * 100) : 0;
+
+      console.log(`Setting weekly progress percentage to ${progressPercent}%`);
 
       setWeeklyProgressPercent(progressPercent);
     } catch (error) {
@@ -709,6 +743,133 @@ export default function PlanScreen() {
     }
   };
 
+  // Function to mark a workout as completed
+  const markWorkoutAsCompleted = async (
+    workoutId: string,
+    workout: Workout
+  ) => {
+    try {
+      // Get the current user
+      const user = await getUser();
+      if (!user) return;
+
+      console.log(`Marking workout as completed: ${workoutId}`);
+
+      // Get the current date and time
+      const completedAt = new Date().toISOString();
+
+      // Extract numeric duration from string (e.g. "30 mins" -> 30)
+      const durationMatch = workout.duration.match(/\d+/);
+      const duration = durationMatch ? parseInt(durationMatch[0], 10) : 30; // Default to 30 if parsing fails
+
+      // Extract numeric calories from string
+      const caloriesMatch = workout.calories.match(/\d+/);
+      const calories = caloriesMatch ? parseInt(caloriesMatch[0], 10) : 0; // Default to 0 if parsing fails
+
+      // Insert a record into the user_workouts table
+      const { data, error } = await supabase.from("user_workouts").insert([
+        {
+          user_id: user.id,
+          workout_id: workoutId,
+          completed_at: completedAt,
+          duration: duration,
+          calories: calories,
+          // Removed difficulty field as it doesn't exist in the table
+        },
+      ]);
+
+      if (error) {
+        console.error("Database error marking workout as completed:", error);
+        throw error;
+      }
+
+      console.log("Successfully inserted workout completion record");
+
+      // Update local state to reflect completion in the UI
+      const updatedSchedule = [...workoutSchedule];
+      const scheduleDay = updatedSchedule.find(
+        (day) => day.day === selectedDay
+      );
+      if (scheduleDay) {
+        const workoutIndex = scheduleDay.workouts.findIndex(
+          (w) => w.id === workoutId
+        );
+        if (workoutIndex !== -1) {
+          scheduleDay.workouts[workoutIndex].completed = true;
+          setWorkoutSchedule(updatedSchedule);
+        }
+      }
+
+      // Set flags for home screen to detect the completion
+      const today = new Date().toISOString().split("T")[0]; // Get YYYY-MM-DD format
+      await AsyncStorage.setItem("last_workout_completion", completedAt);
+      await AsyncStorage.setItem(
+        `workout_completed_${user.id}`,
+        Date.now().toString()
+      );
+      await AsyncStorage.setItem(
+        `last_workout_completion_${user.id}_${today}`,
+        completedAt
+      );
+      await AsyncStorage.setItem("FORCE_REFRESH_HOME", "true");
+      await AsyncStorage.setItem("dashboard_needs_refresh", "true");
+
+      // Also update local stats in AsyncStorage
+      try {
+        const statsKey = `user_stats_${user.id}_${today}`;
+        // Get existing stats or create new ones
+        const existingStatsStr = await AsyncStorage.getItem(statsKey);
+        const existingStats = existingStatsStr
+          ? JSON.parse(existingStatsStr)
+          : {};
+
+        // Update workout count and calories
+        const updatedStats = {
+          ...existingStats,
+          workouts_completed: (existingStats.workouts_completed || 0) + 1,
+          calories: (existingStats.calories || 0) + calories,
+          updated_at: new Date().toISOString(),
+          timestamp: Date.now(),
+        };
+
+        // Save back to AsyncStorage
+        await AsyncStorage.setItem(statsKey, JSON.stringify(updatedStats));
+
+        // Also create a backup with timestamp
+        const backupKey = `workout_backup_${Date.now()}`;
+        await AsyncStorage.setItem(
+          backupKey,
+          JSON.stringify({
+            userId: user.id,
+            date: today,
+            stats: updatedStats,
+          })
+        );
+
+        console.log("Updated local stats in AsyncStorage");
+      } catch (storageError) {
+        console.error("Error updating local stats:", storageError);
+      }
+
+      // Show success message
+      Alert.alert(
+        "Workout Completed",
+        "Great job! Your workout has been marked as completed.",
+        [{ text: "OK" }]
+      );
+
+      // Refresh the weekly progress data
+      console.log("Refreshing weekly progress after workout completion");
+      await fetchWeeklyProgress();
+    } catch (error) {
+      console.error("Error marking workout as completed:", error);
+      Alert.alert(
+        "Error",
+        "Failed to mark workout as completed. Please try again."
+      );
+    }
+  };
+
   return (
     <SafeAreaView
       style={{
@@ -820,18 +981,25 @@ export default function PlanScreen() {
               marginTop: contentPadding + 6,
               marginBottom: contentPadding + 8,
               shadowColor: "#000",
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: isDarkMode ? 0.25 : 0.1,
-              shadowRadius: 6,
-              elevation: 4,
+              shadowOffset: { width: 0, height: 6 },
+              shadowOpacity: isDarkMode ? 0.3 : 0.12,
+              shadowRadius: 8,
+              elevation: 5,
               borderRadius: 24,
               overflow: "hidden",
+              borderWidth: 1,
+              borderColor: isDarkMode
+                ? "rgba(255,255,255,0.05)"
+                : "rgba(0,0,0,0.02)",
             }}
             className="mx-4 mt-6 mb-6"
           >
+            {/* Progress card gradient accent */}
             <LinearGradient
               colors={
-                isDarkMode ? ["#8B5CF6", "#6D28D9"] : ["#818CF8", "#4F46E5"]
+                isDarkMode
+                  ? ["#8B5CF6", "#6D28D9", "#5B21B6"]
+                  : ["#818CF8", "#6366F1", "#4F46E5"]
               }
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
@@ -840,32 +1008,42 @@ export default function PlanScreen() {
                 top: 0,
                 left: 0,
                 right: 0,
-                height: 4,
+                height: 6,
               }}
             />
-            <View className="p-5">
-              <View className="flex-row justify-between items-center mb-6">
+
+            {/* Main content container */}
+            <View className="p-6">
+              {/* Header with title and percentage indicator */}
+              <View className="flex-row justify-between items-center mb-5">
+                {/* Title section */}
                 <View className="flex-row items-center">
                   <View
                     style={{
                       backgroundColor: isDarkMode
                         ? "rgba(139, 92, 246, 0.15)"
                         : "rgba(99, 102, 241, 0.08)",
-                      padding: 10,
-                      borderRadius: 12,
+                      padding: 12,
+                      borderRadius: 16,
+                      shadowColor: "#000",
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: isDarkMode ? 0.15 : 0.05,
+                      shadowRadius: 3,
+                      elevation: isDarkMode ? 2 : 1,
                     }}
                   >
                     <Flame
-                      size={isSmallDevice ? 16 : 18}
-                      color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+                      size={isSmallDevice ? 18 : 20}
+                      color={isDarkMode ? "#A78BFA" : "#6366F1"}
                     />
                   </View>
-                  <View className="ml-">
+                  <View className="ml-2">
                     <Text
                       className="font-bold"
                       style={{
                         color: colors.text,
-                        fontSize: isSmallDevice ? 15 : 17,
+                        fontSize: isSmallDevice ? 16 : 18,
+                        letterSpacing: -0.3,
                       }}
                     >
                       Weekly Progress
@@ -874,6 +1052,7 @@ export default function PlanScreen() {
                       style={{
                         color: colors.secondaryText,
                         fontSize: isSmallDevice ? 12 : 13,
+                        marginTop: 2,
                       }}
                     >
                       {totalWeeklyWorkouts} / {totalWeeklyTargets} workouts
@@ -881,32 +1060,45 @@ export default function PlanScreen() {
                     </Text>
                   </View>
                 </View>
+
+                {/* Percentage indicator */}
                 <View
-                  className="flex-row items-center px-3 py-2 rounded-full"
                   style={{
                     backgroundColor: isDarkMode
                       ? "rgba(139, 92, 246, 0.15)"
                       : "rgba(99, 102, 241, 0.08)",
+                    borderRadius: 20,
+                    height: 40,
+                    minWidth: 110,
+                    justifyContent: "center",
+                    alignItems: "center",
+                    flexDirection: "row",
+                    paddingHorizontal: 8,
+                    shadowColor: "#000",
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: isDarkMode ? 0.2 : 0.08,
+                    shadowRadius: 3,
+                    elevation: isDarkMode ? 2 : 1,
                   }}
                 >
                   <View
                     style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 16,
+                      width: 35,
+                      height: 35,
+                      borderRadius: 17,
                       backgroundColor: isDarkMode
-                        ? "rgba(139, 92, 246, 0.2)"
-                        : "rgba(99, 102, 241, 0.1)",
-                      position: "absolute",
-                      left: 1,
+                        ? "rgba(124, 58, 237, 0.3)"
+                        : "rgba(79, 70, 229, 0.12)",
                       justifyContent: "center",
                       alignItems: "center",
+                      position: "absolute",
+                      left: 0,
                     }}
                   >
                     <Text
                       style={{
-                        color: isDarkMode ? "#A78BFA" : "#4F46E5",
-                        fontSize: isSmallDevice ? 12 : 14,
+                        color: isDarkMode ? "#C4B5FD" : "#4F46E5",
+                        fontSize: isSmallDevice ? 13 : 15,
                         fontWeight: "700",
                       }}
                     >
@@ -915,10 +1107,10 @@ export default function PlanScreen() {
                   </View>
                   <Text
                     style={{
-                      color: isDarkMode ? "#A78BFA" : "#4F46E5",
-                      fontSize: isSmallDevice ? 12 : 14,
+                      color: isDarkMode ? "#C4B5FD" : "#4F46E5",
+                      fontSize: isSmallDevice ? 13 : 14,
                       fontWeight: "600",
-                      marginLeft: 45,
+                      marginLeft: 35,
                     }}
                   >
                     Complete
@@ -926,75 +1118,114 @@ export default function PlanScreen() {
                 </View>
               </View>
 
-              {/* Weekly progress visualization */}
-              <View className="flex-row justify-between items-end mt-2 mb-2">
+              {/* Weekly progress visualization - days of week */}
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "flex-end",
+                  marginTop: 6,
+                  paddingTop: 6,
+                }}
+              >
                 {weeklyProgress.map((dayProgress, index) => {
                   const height =
                     dayProgress.target > 0
                       ? (dayProgress.value / dayProgress.target) * 100
                       : 0;
 
-                  return (
-                    <View key={index} className="items-center">
-                      <View className="mb-2">
-                        <Text
-                          style={{
-                            color: colors.secondaryText,
-                            fontSize: 12,
-                            marginBottom: 6,
-                            fontWeight: "600",
-                          }}
-                        >
-                          {dayProgress.day}
-                        </Text>
+                  // Is today's column
+                  const isToday =
+                    dayProgress.day ===
+                    ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][
+                      new Date().getDay()
+                    ];
 
-                        <View
-                          style={{
-                            width: isSmallDevice ? 24 : 28,
-                            height: 100,
-                            borderRadius: 14,
-                            backgroundColor: isDarkMode ? "#1F2937" : "#F3F4F6",
-                            overflow: "hidden",
-                            justifyContent: "flex-end",
-                            shadowColor: "#000",
-                            shadowOffset: { width: 0, height: 1 },
-                            shadowOpacity: isDarkMode ? 0.15 : 0.05,
-                            shadowRadius: 2,
-                            elevation: 1,
-                          }}
-                        >
-                          {dayProgress.value > 0 && (
-                            <LinearGradient
-                              colors={
-                                isDarkMode
-                                  ? ["#8B5CF6", "#6D28D9"]
-                                  : ["#818CF8", "#4F46E5"]
-                              }
-                              start={{ x: 0, y: 0 }}
-                              end={{ x: 0, y: 1 }}
-                              style={{
-                                width: "100%",
-                                height: `${height}%`,
-                                borderTopLeftRadius: 12,
-                                borderTopRightRadius: 12,
-                              }}
-                            />
-                          )}
-                        </View>
+                  return (
+                    <View
+                      key={index}
+                      style={{
+                        alignItems: "center",
+                        width: `${100 / 7}%`,
+                      }}
+                    >
+                      {/* Day label */}
+                      <Text
+                        style={{
+                          color: isToday
+                            ? isDarkMode
+                              ? "#A78BFA"
+                              : "#4F46E5"
+                            : colors.secondaryText,
+                          fontSize: 12,
+                          marginBottom: 8,
+                          fontWeight: isToday ? "700" : "600",
+                        }}
+                      >
+                        {dayProgress.day}
+                      </Text>
+
+                      {/* Bar container */}
+                      <View
+                        style={{
+                          width: isSmallDevice ? 24 : 28,
+                          height: 110,
+                          borderRadius: 14,
+                          backgroundColor: isDarkMode
+                            ? "rgba(31, 41, 55, 0.7)"
+                            : "rgba(243, 244, 246, 0.8)",
+                          overflow: "hidden",
+                          justifyContent: "flex-end",
+                          marginBottom: 8,
+                          borderWidth: isToday ? 1 : 0,
+                          borderColor: isDarkMode ? "#6D28D9" : "#4F46E5",
+                          shadowColor: "#000",
+                          shadowOffset: { width: 0, height: 2 },
+                          shadowOpacity: isDarkMode ? 0.2 : 0.08,
+                          shadowRadius: 3,
+                          elevation: isToday ? 3 : 1,
+                        }}
+                      >
+                        {dayProgress.value > 0 && (
+                          <LinearGradient
+                            colors={
+                              isToday
+                                ? isDarkMode
+                                  ? ["#A78BFA", "#8B5CF6", "#7C3AED"]
+                                  : ["#818CF8", "#6366F1", "#4F46E5"]
+                                : isDarkMode
+                                ? ["#8B5CF6", "#7C3AED", "#6D28D9"]
+                                : ["#818CF8", "#6366F1", "#4F46E5"]
+                            }
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 0, y: 1 }}
+                            style={{
+                              width: "100%",
+                              height: `${height}%`,
+                              borderTopLeftRadius: 13,
+                              borderTopRightRadius: 13,
+                            }}
+                          />
+                        )}
                       </View>
 
+                      {/* Workout count label */}
                       <View
                         style={{
                           flexDirection: "row",
+                          justifyContent: "center",
+                          alignItems: "center",
+                          paddingHorizontal: 8,
+                          paddingVertical: 4,
+                          borderRadius: 10,
                           backgroundColor:
                             dayProgress.value > 0
                               ? isDarkMode
-                                ? "rgba(139, 92, 246, 0.15)"
-                                : "rgba(99, 102, 241, 0.08)"
+                                ? "rgba(139, 92, 246, 0.2)"
+                                : "rgba(99, 102, 241, 0.1)"
                               : "transparent",
-                          paddingHorizontal: 6,
-                          paddingVertical: 3,
-                          borderRadius: 10,
+                          minWidth: 30,
+                          opacity: dayProgress.target > 0 ? 1 : 0.5,
                         }}
                       >
                         <Text
@@ -1007,7 +1238,7 @@ export default function PlanScreen() {
                               ? "#4F46E5"
                               : colors.secondaryText,
                             fontSize: 12,
-                            fontWeight: dayProgress.value > 0 ? "600" : "400",
+                            fontWeight: dayProgress.value > 0 ? "700" : "500",
                           }}
                         >
                           {dayProgress.value}/{dayProgress.target}
@@ -1034,55 +1265,77 @@ export default function PlanScreen() {
               shadowOpacity: isDarkMode ? 0.25 : 0.1,
               shadowRadius: 6,
               elevation: 4,
+              borderWidth: 1,
+              borderColor: isDarkMode
+                ? "rgba(255,255,255,0.05)"
+                : "rgba(0,0,0,0.02)",
             }}
             className="mb-8"
           >
-            <View className="flex-row justify-between items-center mb-5">
+            <View className="flex-row justify-between items-center mb-5 mt-2">
               <View className="flex-row items-center">
                 <View
                   style={{
                     backgroundColor: isDarkMode
                       ? "rgba(139, 92, 246, 0.15)"
                       : "rgba(99, 102, 241, 0.08)",
-                    padding: 10,
-                    borderRadius: 12,
+                    padding: 12,
+                    borderRadius: 16,
+                    shadowColor: "#000",
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: isDarkMode ? 0.15 : 0.05,
+                    shadowRadius: 3,
+                    elevation: isDarkMode ? 2 : 1,
                   }}
                 >
                   <Calendar
-                    size={isSmallDevice ? 16 : 18}
-                    color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+                    size={isSmallDevice ? 18 : 20}
+                    color={isDarkMode ? "#A78BFA" : "#6366F1"}
                   />
                 </View>
-                <Text
-                  className="font-bold ml-3"
-                  style={{
-                    color: colors.text,
-                    fontSize: isSmallDevice ? 15 : 17,
-                  }}
-                >
-                  {monthDisplay}
-                </Text>
+                <View className="ml-3">
+                  <Text
+                    className="font-bold"
+                    style={{
+                      color: colors.text,
+                      fontSize: isSmallDevice ? 16 : 18,
+                      letterSpacing: -0.3,
+                    }}
+                  >
+                    {monthDisplay}
+                  </Text>
+                  <Text
+                    style={{
+                      color: colors.secondaryText,
+                      fontSize: isSmallDevice ? 12 : 13,
+                      marginTop: 2,
+                    }}
+                  >
+                    {formatDisplayDate(new Date())}
+                  </Text>
+                </View>
               </View>
               <TouchableOpacity
+                activeOpacity={0.8}
                 className="flex-row items-center"
                 onPress={() => router.push("/calendar" as any)}
                 style={{
                   backgroundColor: isDarkMode
                     ? "rgba(139, 92, 246, 0.15)"
                     : "rgba(99, 102, 241, 0.08)",
-                  paddingHorizontal: 12,
-                  paddingVertical: 8,
+                  paddingHorizontal: 14,
+                  paddingVertical: 10,
                   borderRadius: 16,
                   shadowColor: "#000",
-                  shadowOffset: { width: 0, height: 1 },
+                  shadowOffset: { width: 0, height: 2 },
                   shadowOpacity: isDarkMode ? 0.2 : 0.1,
-                  shadowRadius: 2,
-                  elevation: 1,
+                  shadowRadius: 3,
+                  elevation: isDarkMode ? 2 : 1,
                 }}
               >
                 <Text
                   style={{
-                    color: isDarkMode ? "#8B5CF6" : "#6366F1",
+                    color: isDarkMode ? "#A78BFA" : "#6366F1",
                     fontSize: isSmallDevice ? 12 : 14,
                     marginRight: 6,
                     fontWeight: "600",
@@ -1092,7 +1345,7 @@ export default function PlanScreen() {
                 </Text>
                 <ArrowRight
                   size={isSmallDevice ? 14 : 16}
-                  color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+                  color={isDarkMode ? "#A78BFA" : "#6366F1"}
                 />
               </TouchableOpacity>
             </View>
@@ -1101,10 +1354,13 @@ export default function PlanScreen() {
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{
-                paddingVertical: 10,
-                paddingHorizontal: 2,
+                paddingVertical: 12,
+                paddingHorizontal: 4,
               }}
               className="mb-2"
+              style={{
+                marginHorizontal: -4,
+              }}
             >
               {weekDates.map((date, index) => {
                 const isSelected = selectedDay === index;
@@ -1114,27 +1370,33 @@ export default function PlanScreen() {
 
                 return (
                   <TouchableOpacity
+                    activeOpacity={0.7}
                     key={index}
                     onPress={() => setSelectedDay(index)}
-                    className="items-center mr-4"
+                    className="items-center mx-2"
                     style={{
-                      width: isSmallDevice ? 50 : 60,
+                      width: isSmallDevice ? 50 : 58,
                     }}
                   >
                     <View
-                      className="w-12 h-12 rounded-full items-center justify-center mb-2"
                       style={{
+                        width: isSmallDevice ? 48 : 54,
+                        height: isSmallDevice ? 48 : 54,
+                        borderRadius: isSmallDevice ? 24 : 27,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        marginBottom: 8,
                         backgroundColor: isSelected
                           ? isDarkMode
-                            ? "#8B5CF6"
+                            ? "#7C3AED"
                             : "#6366F1"
                           : date.isToday
                           ? isDarkMode
                             ? "rgba(139, 92, 246, 0.2)"
                             : "rgba(99, 102, 241, 0.1)"
                           : isDarkMode
-                          ? "#1F2937"
-                          : "#F9FAFB",
+                          ? "rgba(31, 41, 55, 0.7)"
+                          : "rgba(249, 250, 251, 0.8)",
                         borderWidth: 1,
                         borderColor: isSelected
                           ? isDarkMode
@@ -1142,16 +1404,16 @@ export default function PlanScreen() {
                             : "#4F46E5"
                           : date.isToday
                           ? isDarkMode
-                            ? "#9333EA"
-                            : "#4F46E5"
+                            ? "rgba(147, 51, 234, 0.5)"
+                            : "rgba(79, 70, 229, 0.5)"
                           : isDarkMode
-                          ? "#374151"
-                          : "#E5E7EB",
+                          ? "rgba(55, 65, 81, 0.3)"
+                          : "rgba(229, 231, 235, 0.7)",
                         shadowColor: "#000",
                         shadowOffset: { width: 0, height: 2 },
-                        shadowOpacity: isSelected ? 0.3 : 0.1,
-                        shadowRadius: 3,
-                        elevation: isSelected ? 3 : 1,
+                        shadowOpacity: isSelected ? 0.4 : 0.1,
+                        shadowRadius: isSelected ? 4 : 2,
+                        elevation: isSelected ? 4 : 1,
                       }}
                     >
                       <Text
@@ -1163,38 +1425,49 @@ export default function PlanScreen() {
                               ? "#C4B5FD"
                               : "#4F46E5"
                             : colors.text,
-                          fontWeight: "600",
-                          fontSize: isSmallDevice ? 14 : 16,
+                          fontWeight:
+                            isSelected || date.isToday ? "700" : "600",
+                          fontSize: isSmallDevice ? 16 : 18,
+                          marginBottom: 2,
                         }}
                       >
                         {date.date}
                       </Text>
+                      <Text
+                        style={{
+                          color: isSelected
+                            ? "rgba(255, 255, 255, 0.8)"
+                            : colors.secondaryText,
+                          fontSize: isSmallDevice ? 10 : 11,
+                          fontWeight:
+                            isSelected || date.isToday ? "600" : "500",
+                          letterSpacing: 0.5,
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {date.day.substring(0, 3)}
+                      </Text>
                     </View>
-                    <Text
-                      style={{
-                        color: isSelected
-                          ? isDarkMode
-                            ? "#C4B5FD"
-                            : "#4F46E5"
-                          : colors.secondaryText,
-                        fontSize: isSmallDevice ? 11 : 13,
-                        fontWeight: isSelected ? "600" : "500",
-                      }}
-                    >
-                      {date.day}
-                    </Text>
+
                     {hasWorkout && (
                       <View
-                        className="mt-1.5 h-1.5 rounded-full"
                         style={{
-                          width: isSmallDevice ? 16 : 20,
+                          height: 6,
+                          width: hasWorkout ? 30 : 0,
+                          borderRadius: 3,
                           backgroundColor: isSelected
                             ? isDarkMode
-                              ? "#8B5CF6"
-                              : "#6366F1"
+                              ? "#A78BFA"
+                              : "#818CF8"
                             : isDarkMode
-                            ? "#6D28D9"
-                            : "#818CF8",
+                            ? "#7C3AED"
+                            : "#6366F1",
+                          opacity: hasWorkout ? 1 : 0,
+                          shadowColor: "#000",
+                          shadowOffset: { width: 0, height: 1 },
+                          shadowOpacity: 0.2,
+                          shadowRadius: 1,
+                          elevation: 1,
                         }}
                       />
                     )}
@@ -1219,14 +1492,19 @@ export default function PlanScreen() {
                     backgroundColor: isDarkMode
                       ? "rgba(139, 92, 246, 0.15)"
                       : "rgba(99, 102, 241, 0.08)",
-                    borderRadius: 12,
-                    padding: 10,
+                    borderRadius: 16,
+                    padding: 12,
                     marginRight: 12,
+                    shadowColor: "#000",
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: isDarkMode ? 0.15 : 0.05,
+                    shadowRadius: 3,
+                    elevation: isDarkMode ? 2 : 1,
                   }}
                 >
                   <Dumbbell
-                    size={isSmallDevice ? 16 : 18}
-                    color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+                    size={isSmallDevice ? 18 : 20}
+                    color={isDarkMode ? "#A78BFA" : "#6366F1"}
                   />
                 </View>
                 <View>
@@ -1234,7 +1512,7 @@ export default function PlanScreen() {
                     className="font-bold"
                     style={{
                       color: colors.text,
-                      fontSize: isSmallDevice ? 16 : 18,
+                      fontSize: isSmallDevice ? 17 : 19,
                       letterSpacing: -0.3,
                     }}
                   >
@@ -1246,7 +1524,7 @@ export default function PlanScreen() {
                     style={{
                       color: colors.secondaryText,
                       fontSize: isSmallDevice ? 12 : 14,
-                      marginTop: 2,
+                      marginTop: 3,
                     }}
                   >
                     {selectedDayWorkouts.length > 0
@@ -1258,13 +1536,13 @@ export default function PlanScreen() {
                 </View>
               </View>
               <TouchableOpacity
-                activeOpacity={0.8}
+                activeOpacity={0.7}
                 className="flex-row items-center"
                 onPress={() => router.push("/library" as any)}
                 style={{
                   backgroundColor: isDarkMode
-                    ? "rgba(139, 92, 246, 0.2)"
-                    : "rgba(99, 102, 241, 0.1)",
+                    ? "rgba(124, 58, 237, 0.25)"
+                    : "rgba(99, 102, 241, 0.12)",
                   paddingHorizontal: 14,
                   paddingVertical: 10,
                   borderRadius: 16,
@@ -1272,18 +1550,18 @@ export default function PlanScreen() {
                   shadowOffset: { width: 0, height: 2 },
                   shadowOpacity: isDarkMode ? 0.3 : 0.1,
                   shadowRadius: 3,
-                  elevation: 2,
+                  elevation: isDarkMode ? 3 : 2,
                 }}
               >
                 <Plus
-                  size={isSmallDevice ? 14 : 16}
-                  color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+                  size={isSmallDevice ? 15 : 17}
+                  color={isDarkMode ? "#A78BFA" : "#6366F1"}
                   style={{ marginRight: 6 }}
                 />
                 <Text
                   style={{
-                    color: isDarkMode ? "#8B5CF6" : "#6366F1",
-                    fontSize: isSmallDevice ? 12 : 14,
+                    color: isDarkMode ? "#A78BFA" : "#6366F1",
+                    fontSize: isSmallDevice ? 13 : 15,
                     fontWeight: "600",
                   }}
                 >
@@ -1295,40 +1573,42 @@ export default function PlanScreen() {
             {selectedDayWorkouts.length > 0 ? (
               selectedDayWorkouts.map((workout, index) => (
                 <TouchableOpacity
+                  activeOpacity={0.7}
                   key={index}
                   className="mb-6 overflow-hidden"
                   style={{
                     backgroundColor: colors.card,
                     shadowColor: "#000",
-                    shadowOffset: { width: 0, height: 3 },
-                    shadowOpacity: isDarkMode ? 0.25 : 0.12,
-                    shadowRadius: 5,
-                    elevation: 4,
+                    shadowOffset: { width: 0, height: 5 },
+                    shadowOpacity: isDarkMode ? 0.3 : 0.15,
+                    shadowRadius: 7,
+                    elevation: 5,
                     borderRadius: 24,
                     borderWidth: 1,
                     borderColor: isDarkMode
                       ? "rgba(255,255,255,0.05)"
                       : "rgba(0,0,0,0.03)",
+                    transform: [{ translateY: 0 }],
                   }}
-                  onPress={() => router.push(`/workout/${workout.id}` as any)}
+                  onPress={() => router.push(`/library` as any)}
                 >
                   {/* Header section with image */}
                   <View
                     style={{
                       height: isExtraLargeDevice
-                        ? 140
+                        ? 160
                         : isLargeDevice
-                        ? 130
+                        ? 150
                         : isMediumDevice
-                        ? 120
-                        : 110,
+                        ? 140
+                        : 130,
                     }}
                   >
                     <View className="flex-row h-full">
                       {/* Workout Image */}
                       <View
                         style={{
-                          width: "38%",
+                          width: "40%",
                           position: "relative",
                           borderTopLeftRadius: 24,
                           borderBottomLeftRadius: 24,
@@ -1340,6 +1620,8 @@ export default function PlanScreen() {
                           style={{
                             width: "100%",
                             height: "100%",
+                            borderTopLeftRadius: 24,
+                            borderBottomLeftRadius: 24,
                           }}
                           resizeMode="cover"
                         />
@@ -1352,13 +1634,14 @@ export default function PlanScreen() {
                               shadowOffset: { width: 0, height: 1 },
                               shadowOpacity: 0.3,
                               shadowRadius: 2,
+                              elevation: 3,
                             }}
                           >
                             <Check size={16} color="#FFFFFF" />
                           </View>
                         )}
                         <LinearGradient
-                          colors={["transparent", "rgba(0,0,0,0.5)"]}
+                          colors={["transparent", "rgba(0,0,0,0.7)"]}
                           start={{ x: 0.5, y: 0 }}
                           end={{ x: 0.5, y: 1 }}
                           style={{
@@ -1379,125 +1662,159 @@ export default function PlanScreen() {
                         }}
                       >
                         <View>
-                          <View className="flex-row items-center mb-3">
-                            <View
-                              className="rounded-full px-3 py-1.5 mr-3"
-                              style={{
-                                backgroundColor:
-                                  workout.intensity === "High"
-                                    ? isDarkMode
-                                      ? "rgba(239, 68, 68, 0.2)"
-                                      : "rgba(254, 226, 226, 1)"
-                                    : workout.intensity === "Medium"
-                                    ? isDarkMode
-                                      ? "rgba(59, 130, 246, 0.2)"
-                                      : "rgba(219, 234, 254, 1)"
-                                    : isDarkMode
-                                    ? "rgba(16, 185, 129, 0.2)"
-                                    : "rgba(209, 250, 229, 1)",
-                              }}
-                            >
-                              <Text
-                                className="font-medium"
+                          <View className="flex-row items-center mb-2 justify-between">
+                            <View className="flex-row items-center">
+                              <View
+                                className="rounded-md px-3 py-2 mr-2 bg-opacity-10"
                                 style={{
-                                  color:
+                                  backgroundColor:
                                     workout.intensity === "High"
                                       ? isDarkMode
-                                        ? "#F87171"
-                                        : "#B91C1C"
+                                        ? "rgba(239, 68, 68, 0.25)"
+                                        : "rgba(254, 226, 226, 1)"
                                       : workout.intensity === "Medium"
                                       ? isDarkMode
-                                        ? "#60A5FA"
-                                        : "#1E40AF"
+                                        ? "rgba(59, 130, 246, 0.25)"
+                                        : "rgba(219, 234, 254, 1)"
                                       : isDarkMode
-                                      ? "#34D399"
-                                      : "#065F46",
-                                  fontSize: 11,
-                                  fontWeight: "600",
+                                      ? "rgba(16, 185, 129, 0.25)"
+                                      : "rgba(209, 250, 229, 1)",
                                 }}
                               >
-                                {workout.intensity}
-                              </Text>
+                                <Text
+                                  className="font-medium"
+                                  style={{
+                                    color:
+                                      workout.intensity === "High"
+                                        ? isDarkMode
+                                          ? "#F87171"
+                                          : "#B91C1C"
+                                        : workout.intensity === "Medium"
+                                        ? isDarkMode
+                                          ? "#60A5FA"
+                                          : "#1E40AF"
+                                        : isDarkMode
+                                        ? "#34D399"
+                                        : "#065F46",
+                                    fontSize: 10,
+                                    fontWeight: "700",
+                                  }}
+                                >
+                                  {workout.intensity}
+                                </Text>
+                              </View>
+                              <View
+                                className="flex-row items-center bg-opacity-10 px-3 py-2 rounded-md"
+                                style={{
+                                  backgroundColor: isDarkMode
+                                    ? "rgba(139, 92, 246, 0.15)"
+                                    : "rgba(99, 102, 241, 0.08)",
+                                }}
+                              >
+                                <Clock
+                                  size={isSmallDevice ? 10 : 12}
+                                  color={isDarkMode ? "#C4B5FD" : "#6366F1"}
+                                  style={{ marginRight: 3 }}
+                                />
+                                <Text
+                                  style={{
+                                    color: isDarkMode ? "#C4B5FD" : "#6366F1",
+                                    fontSize: isSmallDevice ? 10 : 12,
+                                    fontWeight: "600",
+                                  }}
+                                >
+                                  {workout.time}
+                                </Text>
+                              </View>
                             </View>
-                            <View
-                              className="flex-row items-center bg-opacity-10 px-3 py-1.5 rounded-md"
+
+                            <TouchableOpacity
+                              activeOpacity={0.7}
                               style={{
+                                width: 32,
+                                height: 32,
+                                borderRadius: 16,
+                                justifyContent: "center",
+                                alignItems: "center",
                                 backgroundColor: isDarkMode
-                                  ? "rgba(139, 92, 246, 0.15)"
-                                  : "rgba(99, 102, 241, 0.08)",
+                                  ? "rgba(55, 65, 81, 0.7)"
+                                  : "rgba(243, 244, 246, 0.8)",
+                                shadowColor: "#000",
+                                shadowOffset: { width: 0, height: 1 },
+                                shadowOpacity: 0.2,
+                                shadowRadius: 1.5,
+                                elevation: 2,
+                              }}
+                              onPress={(e) => {
+                                e.stopPropagation();
+                                handleOpenMenu(workout, workout.planId);
                               }}
                             >
-                              <Clock
-                                size={isSmallDevice ? 11 : 13}
-                                color={isDarkMode ? "#C4B5FD" : "#6366F1"}
-                                style={{ marginRight: 4 }}
+                              <MoreVertical
+                                size={isSmallDevice ? 14 : 16}
+                                color={colors.secondaryText}
                               />
-                              <Text
-                                style={{
-                                  color: isDarkMode ? "#C4B5FD" : "#6366F1",
-                                  fontSize: isSmallDevice ? 11 : 13,
-                                  fontWeight: "500",
-                                }}
-                              >
-                                {workout.time}
-                              </Text>
-                            </View>
+                            </TouchableOpacity>
                           </View>
 
                           <Text
-                            className="font-bold mb-2"
+                            className="font-bold mb-1.5"
                             style={{
                               color: colors.text,
                               fontSize: isSmallDevice ? 16 : 18,
                               letterSpacing: -0.3,
                             }}
+                            numberOfLines={1}
+                            ellipsizeMode="tail"
                           >
                             {workout.title}
                           </Text>
 
                           <View className="flex-row items-center">
                             <View
-                              className="flex-row items-center mr-4 bg-opacity-5 px-2 py-1 rounded-md"
+                              className="flex-row items-center mr-3 bg-opacity-5 px-2.5 py-1.5 rounded-md"
                               style={{
                                 backgroundColor: isDarkMode
-                                  ? "rgba(255,255,255,0.05)"
-                                  : "rgba(0,0,0,0.03)",
+                                  ? "rgba(255,255,255,0.08)"
+                                  : "rgba(0,0,0,0.04)",
                               }}
                             >
                               <Clock
-                                size={isSmallDevice ? 12 : 14}
+                                size={isSmallDevice ? 10 : 12}
                                 color={isDarkMode ? "#9CA3AF" : "#6B7280"}
-                                style={{ marginRight: 4 }}
+                                style={{ marginRight: 3 }}
                               />
                               <Text
                                 style={{
                                   color: colors.secondaryText,
-                                  fontSize: isSmallDevice ? 11 : 13,
-                                  fontWeight: "500",
+                                  fontSize: isSmallDevice ? 10 : 12,
+                                  fontWeight: "600",
                                 }}
+                                numberOfLines={1}
                               >
                                 {workout.duration || ""}
                               </Text>
                             </View>
                             <View
-                              className="flex-row items-center bg-opacity-5 px-2 py-1 rounded-md"
+                              className="flex-row items-center bg-opacity-5 px-2.5 py-1.5 rounded-md"
                               style={{
                                 backgroundColor: isDarkMode
-                                  ? "rgba(255,255,255,0.05)"
-                                  : "rgba(0,0,0,0.03)",
+                                  ? "rgba(255,255,255,0.08)"
+                                  : "rgba(0,0,0,0.04)",
                               }}
                             >
                               <Flame
-                                size={isSmallDevice ? 12 : 14}
+                                size={isSmallDevice ? 10 : 12}
                                 color={isDarkMode ? "#9CA3AF" : "#6B7280"}
-                                style={{ marginRight: 4 }}
+                                style={{ marginRight: 3 }}
                               />
                               <Text
                                 style={{
                                   color: colors.secondaryText,
-                                  fontSize: isSmallDevice ? 11 : 13,
-                                  fontWeight: "500",
+                                  fontSize: isSmallDevice ? 10 : 12,
+                                  fontWeight: "600",
                                 }}
+                                numberOfLines={1}
                               >
                                 {workout.calories
                                   ? workout.calories + " cal"
@@ -1505,63 +1822,6 @@ export default function PlanScreen() {
                               </Text>
                             </View>
                           </View>
-                        </View>
-
-                        <View className="flex-row justify-between items-center mt-3">
-                          <TouchableOpacity
-                            className="flex-row items-center"
-                            style={{
-                              backgroundColor: isDarkMode
-                                ? "rgba(139, 92, 246, 0.2)"
-                                : "rgba(99, 102, 241, 0.15)",
-                              paddingHorizontal: 14,
-                              paddingVertical: 8,
-                              borderRadius: 14,
-                              shadowColor: isDarkMode ? "#7C3AED" : "#4F46E5",
-                              shadowOffset: { width: 0, height: 2 },
-                              shadowOpacity: 0.15,
-                              shadowRadius: 3,
-                              elevation: 2,
-                            }}
-                            onPress={(e) => {
-                              e.stopPropagation();
-                              router.push(
-                                `/workout-player/${workout.id}` as any
-                              );
-                            }}
-                          >
-                            <Text
-                              style={{
-                                color: isDarkMode ? "#A78BFA" : "#4F46E5",
-                                fontSize: isSmallDevice ? 12 : 14,
-                                fontWeight: "600",
-                              }}
-                            >
-                              Start Workout
-                            </Text>
-                          </TouchableOpacity>
-
-                          <TouchableOpacity
-                            style={{
-                              width: 36,
-                              height: 36,
-                              borderRadius: 18,
-                              justifyContent: "center",
-                              alignItems: "center",
-                              backgroundColor: isDarkMode
-                                ? "rgba(55, 65, 81, 0.5)"
-                                : "rgba(243, 244, 246, 0.8)",
-                            }}
-                            onPress={(e) => {
-                              e.stopPropagation();
-                              handleOpenMenu(workout, workout.planId);
-                            }}
-                          >
-                            <MoreVertical
-                              size={isSmallDevice ? 16 : 18}
-                              color={colors.secondaryText}
-                            />
-                          </TouchableOpacity>
                         </View>
                       </View>
                     </View>
@@ -1571,26 +1831,27 @@ export default function PlanScreen() {
                   {workout.exercises && workout.exercises.length > 0 && (
                     <View
                       style={{
-                        paddingHorizontal: 16,
-                        paddingBottom: 16,
+                        paddingHorizontal: 20,
+                        paddingBottom: 22,
                         borderTopWidth: 1,
                         borderTopColor: isDarkMode
-                          ? "rgba(255,255,255,0.05)"
-                          : "rgba(0,0,0,0.05)",
-                        marginTop: 6,
-                        paddingTop: 12,
+                          ? "rgba(255,255,255,0.08)"
+                          : "rgba(0,0,0,0.06)",
+                        marginTop: 10,
+                        paddingTop: 18,
                       }}
                     >
                       <Text
                         style={{
-                          fontSize: 14,
-                          fontWeight: "600",
-                          marginBottom: 10,
+                          fontSize: 15,
+                          fontWeight: "700",
+                          marginBottom: 14,
                           color: colors.secondaryText,
                           letterSpacing: 0.5,
+                          textTransform: "uppercase",
                         }}
                       >
-                        EXERCISES
+                        Exercises
                       </Text>
 
                       <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
@@ -1599,31 +1860,36 @@ export default function PlanScreen() {
                             key={idx}
                             style={{
                               width: "50%",
-                              paddingRight: idx % 2 === 0 ? 4 : 0,
-                              paddingLeft: idx % 2 === 1 ? 4 : 0,
-                              marginBottom: 8,
+                              paddingRight: idx % 2 === 0 ? 6 : 0,
+                              paddingLeft: idx % 2 === 1 ? 6 : 0,
+                              marginBottom: 14,
                             }}
                           >
                             <View
                               style={{
                                 backgroundColor: isDarkMode
-                                  ? "rgba(75, 85, 99, 0.3)"
+                                  ? "rgba(75, 85, 99, 0.35)"
                                   : "rgba(243, 244, 246, 1)",
-                                borderRadius: 12,
-                                padding: 10,
-                                borderLeftWidth: 3,
+                                borderRadius: 16,
+                                padding: 14,
+                                borderLeftWidth: 4,
                                 borderLeftColor: getMuscleColor(
                                   exercise.muscle,
                                   isDarkMode
                                 ),
+                                shadowColor: "#000",
+                                shadowOffset: { width: 0, height: 2 },
+                                shadowOpacity: isDarkMode ? 0.25 : 0.1,
+                                shadowRadius: 3,
+                                elevation: 2,
                               }}
                             >
                               <Text
                                 style={{
-                                  fontSize: 13,
-                                  fontWeight: "600",
+                                  fontSize: isSmallDevice ? 14 : 15,
+                                  fontWeight: "700",
                                   color: colors.text,
-                                  marginBottom: 2,
+                                  marginBottom: 6,
                                 }}
                               >
                                 {exercise.name}
@@ -1632,6 +1898,8 @@ export default function PlanScreen() {
                                 style={{
                                   flexDirection: "row",
                                   alignItems: "center",
+                                  justifyContent: "space-between",
+                                  marginTop: 2,
                                 }}
                               >
                                 <Text
@@ -1641,17 +1909,22 @@ export default function PlanScreen() {
                                       exercise.muscle,
                                       isDarkMode
                                     ),
-                                    fontWeight: "500",
+                                    fontWeight: "600",
+                                    backgroundColor: isDarkMode
+                                      ? "rgba(0,0,0,0.2)"
+                                      : "rgba(255,255,255,0.5)",
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
+                                    borderRadius: 8,
                                   }}
                                 >
                                   {exercise.muscle}
                                 </Text>
                                 <Text
                                   style={{
-                                    fontSize: 11,
+                                    fontSize: 13,
                                     color: colors.secondaryText,
-                                    marginLeft: "auto",
-                                    fontWeight: "500",
+                                    fontWeight: "700",
                                   }}
                                 >
                                   {exercise.sets} × {exercise.reps}
@@ -1670,13 +1943,13 @@ export default function PlanScreen() {
                 className="items-center py-10 rounded-3xl mb-4"
                 style={{
                   backgroundColor: colors.card,
-                  padding: 24,
+                  padding: 28,
                   shadowColor: "#000",
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: isDarkMode ? 0.25 : 0.12,
-                  shadowRadius: 6,
-                  elevation: 4,
-                  borderRadius: 24,
+                  shadowOffset: { width: 0, height: 6 },
+                  shadowOpacity: isDarkMode ? 0.3 : 0.15,
+                  shadowRadius: 8,
+                  elevation: 5,
+                  borderRadius: 28,
                   borderWidth: 1,
                   borderColor: isDarkMode
                     ? "rgba(255,255,255,0.05)"
@@ -1686,8 +1959,8 @@ export default function PlanScreen() {
                 <LinearGradient
                   colors={
                     isDarkMode
-                      ? ["rgba(139, 92, 246, 0.15)", "rgba(79, 70, 229, 0.07)"]
-                      : ["rgba(224, 231, 255, 0.8)", "rgba(239, 246, 255, 0.4)"]
+                      ? ["rgba(139, 92, 246, 0.18)", "rgba(79, 70, 229, 0.08)"]
+                      : ["rgba(224, 231, 255, 0.9)", "rgba(239, 246, 255, 0.5)"]
                   }
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
@@ -1697,37 +1970,38 @@ export default function PlanScreen() {
                     left: 0,
                     right: 0,
                     bottom: 0,
-                    borderRadius: 24,
+                    borderRadius: 28,
                   }}
                 />
 
                 <View
-                  className="w-24 h-24 rounded-full items-center justify-center mb-6"
+                  className="mb-7"
                   style={{
+                    width: 80,
+                    height: 80,
+                    borderRadius: 40,
                     backgroundColor: isDarkMode
-                      ? "rgba(139, 92, 246, 0.2)"
+                      ? "rgba(124, 58, 237, 0.15)"
                       : "rgba(99, 102, 241, 0.1)",
-                    shadowColor: isDarkMode ? "#8B5CF6" : "#6366F1",
-                    shadowOffset: { width: 0, height: 0 },
-                    shadowOpacity: 0.2,
-                    shadowRadius: 10,
+                    justifyContent: "center",
+                    alignItems: "center",
+                    shadowColor: "#000",
+                    shadowOffset: { width: 0, height: 3 },
+                    shadowOpacity: isDarkMode ? 0.2 : 0.1,
+                    shadowRadius: 4,
                     elevation: 3,
-                    borderWidth: 2,
-                    borderColor: isDarkMode
-                      ? "rgba(139, 92, 246, 0.3)"
-                      : "rgba(99, 102, 241, 0.2)",
                   }}
                 >
                   <Dumbbell
-                    size={36}
-                    color={isDarkMode ? "#8B5CF6" : "#6366F1"}
+                    size={46}
+                    color={isDarkMode ? "#A78BFA" : "#6366F1"}
                   />
                 </View>
                 <Text
                   className="font-bold mb-3 text-center"
                   style={{
                     color: colors.text,
-                    fontSize: 22,
+                    fontSize: 24,
                     letterSpacing: -0.5,
                   }}
                 >
@@ -1737,8 +2011,8 @@ export default function PlanScreen() {
                   className="text-center mb-8"
                   style={{
                     color: colors.secondaryText,
-                    fontSize: 15,
-                    lineHeight: 24,
+                    fontSize: 16,
+                    lineHeight: 26,
                     maxWidth: 320,
                   }}
                 >
@@ -1746,15 +2020,17 @@ export default function PlanScreen() {
                   or add a workout to your plan.
                 </Text>
                 <TouchableOpacity
-                  activeOpacity={0.8}
+                  activeOpacity={0.7}
                   className="rounded-xl px-8 py-4 items-center"
                   style={{
                     backgroundColor: isDarkMode ? "#7C3AED" : "#6366F1",
                     shadowColor: "#000",
-                    shadowOffset: { width: 0, height: 3 },
+                    shadowOffset: { width: 0, height: 4 },
                     shadowOpacity: isDarkMode ? 0.4 : 0.2,
-                    shadowRadius: 5,
-                    elevation: 3,
+                    shadowRadius: 6,
+                    elevation: 4,
+                    width: "70%",
+                    maxWidth: 240,
                   }}
                   onPress={() => router.push("/library" as any)}
                 >
@@ -1762,7 +2038,8 @@ export default function PlanScreen() {
                     className="font-semibold"
                     style={{
                       color: "#FFFFFF",
-                      fontSize: 16,
+                      fontSize: 17,
+                      fontWeight: "700",
                     }}
                   >
                     Browse Workouts
@@ -1772,620 +2049,84 @@ export default function PlanScreen() {
             )}
           </Animated.View>
         </ScrollView>
-
-        {/* Bottom Navigation */}
-        <View className="absolute bottom-0 left-0 right-0">
-          <BottomNavigation activeTab="plan" />
-        </View>
       </View>
 
-      {/* Success Modal */}
+      {/* Bottom Navigation */}
+      <BottomNavigation activeTab="plan" />
+
       <Modal
         visible={showSuccessModal}
-        transparent={true}
         animationType="fade"
+        transparent={true}
         onRequestClose={() => setShowSuccessModal(false)}
       >
         <View
           style={{
             flex: 1,
-            backgroundColor: "rgba(0,0,0,0.6)",
             justifyContent: "center",
             alignItems: "center",
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
           }}
         >
-          <Animated.View
+          <View
             style={{
               backgroundColor: colors.card,
-              borderRadius: 28,
-              width: "85%",
-              maxWidth: 340,
-              padding: 32,
-              alignItems: "center",
+              padding: 20,
+              borderRadius: 10,
               shadowColor: "#000",
-              shadowOffset: { width: 0, height: 10 },
-              shadowOpacity: 0.3,
-              shadowRadius: 15,
-              elevation: 8,
-              transform: [{ scale: successScaleAnim }],
-              opacity: successOpacityAnim,
-              borderWidth: 1,
-              borderColor: isDarkMode
-                ? "rgba(255,255,255,0.08)"
-                : "rgba(0,0,0,0.04)",
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.2,
+              shadowRadius: 4,
+              elevation: 5,
             }}
           >
-            <View
-              style={{
-                width: 100,
-                height: 100,
-                borderRadius: 50,
-                backgroundColor: isDarkMode
-                  ? "rgba(139, 92, 246, 0.15)"
-                  : "rgba(99, 102, 241, 0.08)",
-                justifyContent: "center",
-                alignItems: "center",
-                marginBottom: 28,
-                borderWidth: 1,
-                borderColor: isDarkMode
-                  ? "rgba(139, 92, 246, 0.3)"
-                  : "rgba(99, 102, 241, 0.2)",
-              }}
-            >
-              <Animated.View
-                style={{
-                  transform: [{ scale: checkmarkScaleAnim }],
-                }}
-              >
-                <CheckCircle
-                  size={64}
-                  color={isDarkMode ? "#A78BFA" : "#6366F1"}
-                  fill={
-                    isDarkMode
-                      ? "rgba(139, 92, 246, 0.3)"
-                      : "rgba(99, 102, 241, 0.2)"
-                  }
-                  strokeWidth={1.5}
-                />
-              </Animated.View>
-            </View>
-
             <Text
               style={{
-                fontSize: 24,
-                fontWeight: "700",
                 color: colors.text,
-                marginBottom: 12,
+                fontSize: 18,
+                fontWeight: "700",
                 textAlign: "center",
-                letterSpacing: -0.5,
+                marginBottom: 10,
               }}
             >
-              Workout Removed
+              Workout Completed
             </Text>
-
             <Text
               style={{
-                fontSize: 16,
                 color: colors.secondaryText,
+                fontSize: 14,
                 textAlign: "center",
-                marginBottom: 32,
-                lineHeight: 24,
               }}
             >
-              "{deletedWorkoutTitle}" has been removed from your workout plan.
+              Great job! Your workout has been marked as completed.
             </Text>
-
             <TouchableOpacity
+              activeOpacity={0.7}
               style={{
-                paddingVertical: 16,
-                paddingHorizontal: 28,
-                backgroundColor: isDarkMode ? "#7C3AED" : "#6366F1",
-                borderRadius: 16,
+                backgroundColor: "#6366F1",
+                padding: 10,
+                borderRadius: 5,
+                marginTop: 10,
                 width: "100%",
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: 3 },
-                shadowOpacity: isDarkMode ? 0.3 : 0.1,
-                shadowRadius: 6,
-                elevation: 3,
               }}
               onPress={() => setShowSuccessModal(false)}
             >
               <Text
                 style={{
                   color: "#FFFFFF",
-                  fontWeight: "600",
-                  fontSize: 17,
+                  fontSize: 16,
+                  fontWeight: "700",
                   textAlign: "center",
                 }}
               >
-                Got it
-              </Text>
-            </TouchableOpacity>
-          </Animated.View>
-        </View>
-      </Modal>
-
-      {/* Calendar Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={showCalendarModal}
-        onRequestClose={() => setShowCalendarModal(false)}
-      >
-        <View
-          style={{
-            flex: 1,
-            justifyContent: "center",
-            alignItems: "center",
-            backgroundColor: "rgba(0,0,0,0.6)",
-          }}
-        >
-          <View
-            style={{
-              width: "92%",
-              maxHeight: "80%",
-              backgroundColor: colors.card,
-              borderRadius: 28,
-              padding: 28,
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 10 },
-              shadowOpacity: 0.3,
-              shadowRadius: 16,
-              elevation: 10,
-              overflow: "hidden",
-              borderWidth: 1,
-              borderColor: isDarkMode
-                ? "rgba(255,255,255,0.08)"
-                : "rgba(0,0,0,0.04)",
-            }}
-          >
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 10 }}
-            >
-              {/* Date header with simple layout */}
-              <View
-                style={{
-                  borderBottomWidth: 1,
-                  borderBottomColor: isDarkMode
-                    ? "rgba(255,255,255,0.1)"
-                    : "rgba(0,0,0,0.05)",
-                  paddingBottom: 20,
-                  marginBottom: 20,
-                }}
-              >
-                {/* Year and date display */}
-                <View className="flex flex-row justify-between items-center">
-                  <View>
-                    <View className="flex-row items-center">
-                      <TouchableOpacity
-                        onPress={() => setShowYearSelector(!showYearSelector)}
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          paddingVertical: 6,
-                          paddingHorizontal: 10,
-                          backgroundColor: isDarkMode
-                            ? "rgba(139, 92, 246, 0.15)"
-                            : "rgba(99, 102, 241, 0.08)",
-                          borderRadius: 10,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            color: isDarkMode ? "#A78BFA" : "#6366F1",
-                            fontSize: 16,
-                            fontWeight: "600",
-                          }}
-                        >
-                          {selectedCalendarDate.getFullYear()}
-                        </Text>
-                        <ChevronRight
-                          size={14}
-                          color={isDarkMode ? "#A78BFA" : "#6366F1"}
-                          style={{ marginLeft: 4, marginTop: 1 }}
-                        />
-                      </TouchableOpacity>
-                    </View>
-                    <Text
-                      style={{
-                        color: colors.text,
-                        fontSize: 26,
-                        fontWeight: "700",
-                        marginTop: 8,
-                        letterSpacing: -0.5,
-                      }}
-                    >
-                      {formatDisplayDate(selectedCalendarDate)}
-                    </Text>
-                  </View>
-
-                  {/* Time display */}
-                  <View
-                    style={{
-                      padding: 12,
-                      backgroundColor: isDarkMode
-                        ? "rgba(55, 65, 81, 0.3)"
-                        : "rgba(243, 244, 246, 0.8)",
-                      borderRadius: 14,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: colors.secondaryText,
-                        fontSize: 16,
-                        fontWeight: "500",
-                      }}
-                    >
-                      {new Date().toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* Year selector dropdown */}
-              {showYearSelector && (
-                <View
-                  style={{
-                    maxHeight: 230,
-                    backgroundColor: colors.card,
-                    borderRadius: 16,
-                    marginBottom: 20,
-                    borderWidth: 1,
-                    borderColor: isDarkMode
-                      ? "rgba(255,255,255,0.1)"
-                      : "rgba(0,0,0,0.05)",
-                    shadowColor: "#000",
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: isDarkMode ? 0.3 : 0.1,
-                    shadowRadius: 6,
-                    elevation: 3,
-                  }}
-                >
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      paddingHorizontal: 20,
-                      paddingVertical: 14,
-                      borderBottomWidth: 1,
-                      borderBottomColor: isDarkMode
-                        ? "rgba(255,255,255,0.1)"
-                        : "rgba(0,0,0,0.05)",
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontSize: 18,
-                        fontWeight: "700",
-                        color: colors.text,
-                        letterSpacing: -0.3,
-                      }}
-                    >
-                      Select Year
-                    </Text>
-                    <TouchableOpacity
-                      onPress={() => setShowYearSelector(false)}
-                      style={{
-                        width: 32,
-                        height: 32,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        borderRadius: 16,
-                        backgroundColor: isDarkMode
-                          ? "rgba(255,255,255,0.1)"
-                          : "rgba(0,0,0,0.05)",
-                      }}
-                    >
-                      <Text style={{ color: colors.text, fontSize: 18 }}>
-                        ×
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  <ScrollView
-                    style={{ maxHeight: 160 }}
-                    showsVerticalScrollIndicator={true}
-                    indicatorStyle={isDarkMode ? "white" : "black"}
-                    contentContainerStyle={{ padding: 6 }}
-                  >
-                    <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
-                      {generateYearOptions().map((year) => (
-                        <TouchableOpacity
-                          key={year}
-                          onPress={() => selectYear(year)}
-                          style={{
-                            width: "25%",
-                            padding: 3,
-                          }}
-                        >
-                          <View
-                            style={{
-                              padding: 6,
-                              borderRadius: 8,
-                              alignItems: "center",
-                              justifyContent: "center",
-                              height: 36,
-                              backgroundColor:
-                                year === calendarMonth.getFullYear()
-                                  ? isDarkMode
-                                    ? "rgba(139, 92, 246, 0.25)"
-                                    : "rgba(99, 102, 241, 0.15)"
-                                  : "transparent",
-                              borderWidth:
-                                year === new Date().getFullYear() ? 1 : 0,
-                              borderColor: isDarkMode ? "#A78BFA" : "#6366F1",
-                            }}
-                          >
-                            <Text
-                              style={{
-                                fontSize: 15,
-                                fontWeight:
-                                  year === calendarMonth.getFullYear()
-                                    ? "700"
-                                    : year === new Date().getFullYear()
-                                    ? "600"
-                                    : "400",
-                                color:
-                                  year === calendarMonth.getFullYear()
-                                    ? isDarkMode
-                                      ? "#A78BFA"
-                                      : "#6366F1"
-                                    : year === new Date().getFullYear()
-                                    ? isDarkMode
-                                      ? "#C4B5FD"
-                                      : "#4F46E5"
-                                    : colors.text,
-                              }}
-                            >
-                              {year}
-                            </Text>
-                          </View>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </ScrollView>
-                </View>
-              )}
-
-              {/* Month navigation header */}
-              <View className="flex-row justify-between items-center mb-8">
-                <TouchableOpacity
-                  onPress={() => navigateMonth(-1)}
-                  style={{
-                    width: 46,
-                    height: 46,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    borderRadius: 23,
-                    backgroundColor: isDarkMode
-                      ? "rgba(139, 92, 246, 0.15)"
-                      : "rgba(99, 102, 241, 0.08)",
-                  }}
-                >
-                  <ChevronLeft
-                    size={22}
-                    color={isDarkMode ? "#8B5CF6" : "#6366F1"}
-                    strokeWidth={2.5}
-                  />
-                </TouchableOpacity>
-
-                <View
-                  className="flex-row items-center justify-center"
-                  style={{ minWidth: 160 }}
-                >
-                  <Text
-                    style={{
-                      color: colors.text,
-                      fontSize: 22,
-                      fontWeight: "700",
-                      textAlign: "center",
-                      letterSpacing: -0.5,
-                    }}
-                  >
-                    {getMonthName(calendarMonth)}
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => setShowYearSelector(!showYearSelector)}
-                    style={{
-                      marginLeft: 10,
-                      backgroundColor: isDarkMode
-                        ? "rgba(139, 92, 246, 0.15)"
-                        : "rgba(99, 102, 241, 0.08)",
-                      paddingHorizontal: 10,
-                      paddingVertical: 6,
-                      borderRadius: 10,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: isDarkMode ? "#A78BFA" : "#6366F1",
-                        fontSize: 18,
-                        fontWeight: "700",
-                      }}
-                    >
-                      {calendarMonth.getFullYear()}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                <TouchableOpacity
-                  onPress={() => navigateMonth(1)}
-                  style={{
-                    width: 46,
-                    height: 46,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    borderRadius: 23,
-                    backgroundColor: isDarkMode
-                      ? "rgba(139, 92, 246, 0.15)"
-                      : "rgba(99, 102, 241, 0.08)",
-                  }}
-                >
-                  <ChevronRight
-                    size={22}
-                    color={isDarkMode ? "#8B5CF6" : "#6366F1"}
-                    strokeWidth={2.5}
-                  />
-                </TouchableOpacity>
-              </View>
-
-              {/* Calendar days of week header */}
-              <View className="flex-row justify-between mb-5">
-                {["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].map(
-                  (day, index) => (
-                    <Text
-                      key={index}
-                      style={{
-                        color: colors.secondaryText,
-                        width: "14.28%",
-                        textAlign: "center",
-                        fontSize: 13,
-                        fontWeight: "600",
-                        letterSpacing: 0.5,
-                      }}
-                    >
-                      {day}
-                    </Text>
-                  )
-                )}
-              </View>
-
-              {/* Calendar dates grid */}
-              <View className="flex-wrap flex-row mb-5">
-                {getDaysInMonth(
-                  calendarMonth.getFullYear(),
-                  calendarMonth.getMonth()
-                ).map((day, index) => {
-                  // Check if this day is today
-                  const isToday =
-                    day === new Date().getDate() &&
-                    calendarMonth.getMonth() === new Date().getMonth() &&
-                    calendarMonth.getFullYear() === new Date().getFullYear();
-
-                  // Get selected date properties
-                  const isSelected =
-                    day === selectedCalendarDate.getDate() &&
-                    calendarMonth.getMonth() ===
-                      selectedCalendarDate.getMonth() &&
-                    calendarMonth.getFullYear() ===
-                      selectedCalendarDate.getFullYear();
-
-                  // Check if this day has a scheduled workout
-                  const hasWorkout =
-                    day &&
-                    workoutSchedule.some((schedule) => {
-                      const scheduleDate = new Date(today);
-                      scheduleDate.setDate(day as number);
-                      return (
-                        schedule.day === scheduleDate.getDay() &&
-                        schedule.workouts.length > 0
-                      );
-                    });
-
-                  return (
-                    <View
-                      key={index}
-                      style={{
-                        width: "14.28%",
-                        height: 54,
-                        padding: 3,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        borderRadius: 20,
-                      }}
-                    >
-                      {day ? (
-                        <TouchableOpacity
-                          className="items-center justify-center"
-                          style={{
-                            width: 44,
-                            height: 44,
-                            borderRadius: 22,
-                            backgroundColor: isSelected
-                              ? isDarkMode
-                                ? "#7C3AED"
-                                : "#6366F1"
-                              : isToday
-                              ? isDarkMode
-                                ? "rgba(139, 92, 246, 0.2)"
-                                : "rgba(99, 102, 241, 0.1)"
-                              : "transparent",
-                            shadowColor: isSelected ? "#000" : "transparent",
-                            shadowOffset: { width: 0, height: 2 },
-                            shadowOpacity: isSelected ? 0.3 : 0,
-                            shadowRadius: 4,
-                            elevation: isSelected ? 2 : 0,
-                          }}
-                          onPress={() => selectDate(day)}
-                        >
-                          <Text
-                            style={{
-                              color: isSelected
-                                ? "#FFFFFF"
-                                : isToday
-                                ? isDarkMode
-                                  ? "#C4B5FD"
-                                  : "#4F46E5"
-                                : colors.text,
-                              fontWeight: isSelected || isToday ? "600" : "400",
-                              fontSize: 17,
-                            }}
-                          >
-                            {day}
-                          </Text>
-                          {hasWorkout && !isSelected && (
-                            <View
-                              className="h-1.5 w-1.5 rounded-full mt-1"
-                              style={{
-                                backgroundColor: isDarkMode
-                                  ? "#8B5CF6"
-                                  : "#6366F1",
-                              }}
-                            />
-                          )}
-                        </TouchableOpacity>
-                      ) : (
-                        <View style={{ width: 44, height: 44 }} />
-                      )}
-                    </View>
-                  );
-                })}
-              </View>
-            </ScrollView>
-
-            {/* Action button */}
-            <TouchableOpacity
-              className="py-4 rounded-xl items-center mt-6"
-              style={{
-                backgroundColor: isDarkMode ? "#7C3AED" : "#6366F1",
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: 3 },
-                shadowOpacity: 0.2,
-                shadowRadius: 5,
-                elevation: 3,
-              }}
-              onPress={() => setShowCalendarModal(false)}
-            >
-              <Text
-                style={{
-                  color: "#FFFFFF",
-                  fontWeight: "600",
-                  fontSize: 17,
-                }}
-              >
-                Done
+                OK
               </Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* Menu Modal */}
+      {/* Menu Modal for 3-dot button */}
       <Modal
         visible={menuVisible}
         transparent={true}
@@ -2395,7 +2136,7 @@ export default function PlanScreen() {
         <TouchableOpacity
           style={{
             flex: 1,
-            backgroundColor: "rgba(0,0,0,0.6)",
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
             justifyContent: "center",
             alignItems: "center",
           }}
@@ -2405,70 +2146,148 @@ export default function PlanScreen() {
           <View
             style={{
               backgroundColor: colors.card,
-              borderRadius: 20,
+              borderRadius: 16,
+              padding: 6,
               width: "80%",
-              maxWidth: 320,
-              overflow: "hidden",
+              maxWidth: 300,
               shadowColor: "#000",
               shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.25,
+              shadowOpacity: 0.3,
               shadowRadius: 8,
-              elevation: 5,
+              elevation: 8,
               borderWidth: 1,
               borderColor: isDarkMode
-                ? "rgba(255,255,255,0.08)"
-                : "rgba(0,0,0,0.04)",
+                ? "rgba(255,255,255,0.1)"
+                : "rgba(0,0,0,0.05)",
             }}
           >
-            {selectedWorkoutPlan && (
-              <>
-                <View
-                  style={{
-                    padding: 20,
-                    borderBottomWidth: 1,
-                    borderBottomColor: isDarkMode
-                      ? "rgba(255,255,255,0.1)"
-                      : "rgba(0,0,0,0.1)",
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: colors.text,
-                      fontSize: 18,
-                      fontWeight: "700",
-                      textAlign: "center",
-                      letterSpacing: -0.3,
-                    }}
-                  >
-                    {selectedWorkoutPlan.title}
-                  </Text>
-                </View>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                padding: 16,
+                borderRadius: 12,
+              }}
+              onPress={() => {
+                setMenuVisible(false);
+                if (selectedWorkoutPlan?.id) {
+                  router.push(
+                    `/workout-player/${selectedWorkoutPlan.id}` as any
+                  );
+                }
+              }}
+            >
+              <Dumbbell
+                size={20}
+                color={isDarkMode ? "#A78BFA" : "#6366F1"}
+                style={{ marginRight: 12 }}
+              />
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: "600",
+                  color: isDarkMode ? "#A78BFA" : "#6366F1",
+                }}
+              >
+                Start Workout
+              </Text>
+            </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    padding: 20,
-                  }}
-                  onPress={() => deleteWorkout(selectedWorkoutPlan.id)}
-                >
-                  <Trash2
-                    size={22}
-                    color="#EF4444"
-                    style={{ marginRight: 14 }}
-                  />
-                  <Text
-                    style={{
-                      color: "#EF4444",
-                      fontSize: 17,
-                      fontWeight: "500",
-                    }}
-                  >
-                    Remove from Plan
-                  </Text>
-                </TouchableOpacity>
-              </>
-            )}
+            <TouchableOpacity
+              activeOpacity={0.7}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                padding: 16,
+                borderRadius: 12,
+                marginTop: 4,
+              }}
+              onPress={() => {
+                setMenuVisible(false);
+                // Get the workout object from the selected plan ID
+                const daySchedule = workoutSchedule.find(
+                  (schedule) => schedule.day === selectedDay
+                );
+                if (daySchedule) {
+                  const workout = daySchedule.workouts.find(
+                    (w) => w.planId === selectedWorkoutPlan?.id
+                  );
+                  if (workout) {
+                    markWorkoutAsCompleted(workout.id, workout);
+                  }
+                }
+              }}
+            >
+              <CheckCircle
+                size={20}
+                color={isDarkMode ? "#34D399" : "#059669"}
+                style={{ marginRight: 12 }}
+              />
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: "600",
+                  color: isDarkMode ? "#34D399" : "#059669",
+                }}
+              >
+                Complete Workout
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.7}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                padding: 16,
+                borderRadius: 12,
+                marginTop: 4,
+              }}
+              onPress={() => {
+                if (selectedWorkoutPlan?.id) {
+                  deleteWorkout(selectedWorkoutPlan.id);
+                }
+              }}
+            >
+              <Trash2
+                size={20}
+                color={isDarkMode ? "#F87171" : "#EF4444"}
+                style={{ marginRight: 12 }}
+              />
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: "600",
+                  color: isDarkMode ? "#F87171" : "#EF4444",
+                }}
+              >
+                Delete Workout
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                padding: 16,
+                borderRadius: 12,
+                marginTop: 4,
+              }}
+              onPress={() => setMenuVisible(false)}
+            >
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: "600",
+                  color: colors.text,
+                  textAlign: "center",
+                  width: "100%",
+                }}
+              >
+                Cancel
+              </Text>
+            </TouchableOpacity>
           </View>
         </TouchableOpacity>
       </Modal>
