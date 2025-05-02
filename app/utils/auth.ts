@@ -3,6 +3,7 @@ import { User } from "@supabase/supabase-js";
 import { router } from "expo-router";
 import { Database } from "../../src/types/supabase.types";
 import { PostgrestError } from "@supabase/supabase-js";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Function to sign up a new user
 export const signUp = async (
@@ -156,6 +157,21 @@ export const signIn = async (email: string, password: string) => {
           access_token: data.session.access_token,
           refresh_token: data.session.refresh_token,
         });
+
+        // Extra safeguard: manually store the session data
+        const storageKey = `sb-${process.env.EXPO_PUBLIC_SUPABASE_URL}-auth-token`;
+        const sessionString = JSON.stringify({
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+          expires_at: data.session.expires_at,
+          expires_in: data.session.expires_in,
+          provider_token: data.session.provider_token,
+          provider_refresh_token: data.session.provider_refresh_token,
+          user: data.user,
+        });
+
+        await AsyncStorage.setItem(storageKey, sessionString);
+        console.log("Successfully saved auth session to storage");
       } catch (sessionError) {
         console.warn("Error persisting session:", sessionError);
         // Continue anyway, not a fatal error
