@@ -21,7 +21,7 @@ extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
   }
 }
 
-rootProject.name = 'test-tempo'
+rootProject.name = 'Function Fit'
 
 dependencyResolutionManagement {
   versionCatalogs {
