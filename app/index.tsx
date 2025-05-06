@@ -775,18 +775,128 @@ export default function HomeScreen() {
         const user = await getUser();
         if (!user) return;
 
+        // Check if we've already encountered the "Row too big" error
+        const hasRowError = await AsyncStorage.getItem("PROFILE_ROW_ERROR");
+        if (hasRowError === "true") {
+          console.log(
+            "Previously detected Row too big error, using minimal profile"
+          );
+          const { clearCorruptedProfileCache } = require("./utils/emergency");
+          await clearCorruptedProfileCache();
+
+          // Set default avatar
+          const defaultAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`;
+          setAvatarUrl(defaultAvatar);
+          return;
+        }
+
         // Use user-specific key for cached profile
         const cachedProfileKey = `userProfile-${user.id}`;
-        const cachedProfile = await AsyncStorage.getItem(cachedProfileKey);
 
-        if (cachedProfile) {
-          const { avatarUrl } = JSON.parse(cachedProfile);
-          if (avatarUrl) {
-            setAvatarUrl(avatarUrl);
+        try {
+          const cachedProfile = await AsyncStorage.getItem(cachedProfileKey);
+
+          if (cachedProfile) {
+            try {
+              const profileData = JSON.parse(cachedProfile);
+              if (profileData && profileData.avatarUrl) {
+                // Handle the optimized avatar URL format
+                let avatarUrlToUse = profileData.avatarUrl;
+
+                // If it's a seed reference, reconstruct the Dicebear URL
+                if (profileData.avatarUrl.startsWith("seed:")) {
+                  const seed = profileData.avatarUrl.replace("seed:", "");
+                  avatarUrlToUse = `https://api.dicebear.com/7.x/avataaars/svg?seed=${seed}`;
+                }
+                // If it's a storage reference, reconstruct the Supabase URL
+                else if (profileData.avatarUrl.startsWith("storage:")) {
+                  const filename = profileData.avatarUrl.replace(
+                    "storage:",
+                    ""
+                  );
+
+                  // Try to determine if it's in users or public folder based on filename pattern
+                  if (filename.startsWith("profile-")) {
+                    // It's likely in the users folder
+                    avatarUrlToUse = `${
+                      process.env.EXPO_PUBLIC_SUPABASE_URL ||
+                      "https://vvvlpxqmbmxkwxmcfxyd.supabase.co"
+                    }/storage/v1/object/public/profile-images/users/${
+                      user.id
+                    }/${filename}`;
+                  } else {
+                    // It's likely in the public folder with user ID prefix
+                    avatarUrlToUse = `${
+                      process.env.EXPO_PUBLIC_SUPABASE_URL ||
+                      "https://vvvlpxqmbmxkwxmcfxyd.supabase.co"
+                    }/storage/v1/object/public/profile-images/public/${
+                      user.id
+                    }-${filename}`;
+                  }
+                }
+
+                setAvatarUrl(avatarUrlToUse);
+              }
+            } catch (parseError) {
+              console.error(
+                "Error parsing cached profile for avatar:",
+                parseError
+              );
+              // Detect corruption and set flag for cleanup
+              await AsyncStorage.setItem(
+                "PROFILE_CACHE_ERROR",
+                Date.now().toString()
+              );
+
+              // Also mark that we've seen the Row too big error
+              if (
+                parseError instanceof Error &&
+                parseError.message.includes("Row too big")
+              ) {
+                await AsyncStorage.setItem("PROFILE_ROW_ERROR", "true");
+                // Run the cleanup immediately
+                const {
+                  clearCorruptedProfileCache,
+                } = require("./utils/emergency");
+                await clearCorruptedProfileCache();
+              }
+
+              // Fall back to default avatar
+              const defaultAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`;
+              setAvatarUrl(defaultAvatar);
+            }
           }
+        } catch (storageError) {
+          console.error("AsyncStorage access error for profile:", storageError);
+
+          // Check for specific Row too big error and handle it
+          if (
+            storageError instanceof Error &&
+            storageError.message.includes("Row too big")
+          ) {
+            await AsyncStorage.setItem("PROFILE_ROW_ERROR", "true");
+            // Run the cleanup function to fix the corrupted data
+            const { clearCorruptedProfileCache } = require("./utils/emergency");
+            await clearCorruptedProfileCache();
+          }
+
+          // Always fall back to a default avatar
+          const defaultAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`;
+          setAvatarUrl(defaultAvatar);
         }
       } catch (error) {
         console.error("Error loading cached profile:", error);
+        // Still set a default avatar even on complete failure
+        try {
+          const user = await getUser();
+          if (user) {
+            const defaultAvatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`;
+            setAvatarUrl(defaultAvatar);
+          }
+        } catch (e) {
+          // If all else fails, use a truly generic avatar
+          setAvatarUrl("https://api.dicebear.com/7.x/avataaars/svg");
+        }
       }
     };
 
@@ -1551,12 +1661,34 @@ export default function HomeScreen() {
           const cachedProfile = await AsyncStorage.getItem(cachedProfileKey);
           const parsedCache = cachedProfile ? JSON.parse(cachedProfile) : {};
 
+          // Optimize avatar URL storage to prevent "Row too big" error
+          let optimizedAvatarUrl = profile.avatar_url;
+
+          // If the URL is a Dicebear avatar, just store the seed to save space
+          if (profile.avatar_url.includes("dicebear.com")) {
+            // Extract the seed parameter or just use the user ID as seed
+            const seedMatch = profile.avatar_url.match(/seed=([^&]+)/);
+            const seed = seedMatch ? seedMatch[1] : user.id;
+
+            // Store a reference instead of the full URL
+            optimizedAvatarUrl = `seed:${seed}`;
+          }
+          // If it's a Supabase storage URL, store a shortened reference
+          else if (profile.avatar_url.includes("supabase.co")) {
+            // Extract just the filename part of the path
+            const pathParts = profile.avatar_url.split("/");
+            const filename = pathParts[pathParts.length - 1];
+
+            // Store the reference with just enough info to reconstruct it later
+            optimizedAvatarUrl = `storage:${filename}`;
+          }
+
           await AsyncStorage.setItem(
             cachedProfileKey,
             JSON.stringify({
               ...parsedCache,
               userId: user.id,
-              avatarUrl: profile.avatar_url,
+              avatarUrl: optimizedAvatarUrl,
             })
           );
         } catch (cacheError) {
@@ -2052,17 +2184,6 @@ export default function HomeScreen() {
                   </Text>
                 </View>
               </View>
-              <TouchableOpacity className="p-2">
-                <View
-                  style={{
-                    backgroundColor: colors.card,
-                    ...cardShadow,
-                  }}
-                  className="rounded-full p-3"
-                >
-                  <Bell size={20} color={colors.accent} />
-                </View>
-              </TouchableOpacity>
             </Animated.View>
 
             <Animated.ScrollView
