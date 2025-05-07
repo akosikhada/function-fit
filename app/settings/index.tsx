@@ -65,6 +65,43 @@ import { useFocusEffect } from "@react-navigation/native";
 import CustomDateTimePicker from "../components/DateTimePicker";
 const { useTheme } = ThemeModule;
 
+// Storage utility to handle large objects
+const StorageManager = {
+  // Store object by splitting it into smaller chunks if needed
+  async storeObject(key: string, object: any): Promise<boolean> {
+    try {
+      const jsonString = JSON.stringify(object);
+
+      // If the object is small enough, store it directly
+      if (jsonString.length < 100000) {
+        // ~100KB is safe for most devices
+        await AsyncStorage.setItem(key, jsonString);
+        return true;
+      }
+
+      // For large objects, only store essential fields
+      const essentialData = {
+        username: object.username,
+        email: object.email,
+        fullName: object.fullName,
+        avatarUrl: object.avatarUrl,
+        birthday: object.birthday,
+        gender: object.gender,
+        height: object.height,
+        weight: object.weight,
+        // Explicitly exclude stats, goals, achievements, etc.
+      };
+
+      await AsyncStorage.setItem(key, JSON.stringify(essentialData));
+      console.log("Stored simplified version of large object for key:", key);
+      return true;
+    } catch (error) {
+      console.error("StorageManager.storeObject error:", error);
+      return false;
+    }
+  },
+};
+
 interface UserProfile {
   userId?: string;
   id?: string; // Add id field to fix linter errors
@@ -195,40 +232,107 @@ function SettingsScreen() {
         const user = await getUser();
         if (!user) return;
 
-        // Get user-specific cached data
-        const cachedProfileKey = `userProfile-${user.id}`;
-        const cachedProfile = await AsyncStorage.getItem(cachedProfileKey);
-        // Also check for any in-progress edits
-        const editProgressKey = `editProfile-${user.id}`;
-        const editProgress = await AsyncStorage.getItem(editProgressKey);
+        try {
+          // Check if the emergency cleanup flag is set or if we're triggering a cleanup for the first time
+          // This prevents a cycle of constant retries if the initial error happens
+          const errorFlag = await AsyncStorage.getItem("PROFILE_CACHE_ERROR");
+          const now = Date.now();
+          const lastCleanupAttempt = parseInt(errorFlag || "0");
+          const isRecentError = now - lastCleanupAttempt < 600000; // 10 minutes
 
-        if (cachedProfile) {
-          const cachedData = JSON.parse(cachedProfile);
-          // Only update if we have data
-          if (cachedData.username || cachedData.email || cachedData.avatarUrl) {
-            setUserProfile((prev) => ({
-              ...prev,
-              username: cachedData.username || prev.username,
-              email: cachedData.email || prev.email,
-              avatarUrl: cachedData.avatarUrl || prev.avatarUrl,
-              // Also load other fields if available
-              fullName: cachedData.fullName || prev.fullName,
-              birthday: cachedData.birthday || prev.birthday,
-              gender: cachedData.gender || prev.gender,
-              height: cachedData.height || prev.height,
-              weight: cachedData.weight || prev.weight,
-            }));
+          if (isRecentError) {
+            console.log(
+              "Recent corruption error detected, attempting emergency cleanup"
+            );
+            // Import the emergency cleanup utility
+            const {
+              clearCorruptedProfileCache,
+            } = require("../utils/emergency");
+            // Run the cleanup
+            const cleanupResult = await clearCorruptedProfileCache();
+            if (cleanupResult) {
+              console.log("Profile cache cleanup successful");
+              // Update the flag with successful cleanup timestamp
+              await AsyncStorage.setItem(
+                "PROFILE_CACHE_CLEANED",
+                now.toString()
+              );
+              await AsyncStorage.removeItem("PROFILE_CACHE_ERROR");
+            }
           }
+        } catch (cleanupError) {
+          console.error("Error during emergency cleanup:", cleanupError);
+          // Continue with normal flow even if cleanup fails
         }
 
-        // Store edit progress data for later use
-        if (editProgress) {
-          const editData = JSON.parse(editProgress);
-          // We'll access this when opening the edit modal
-          setEditedProfile(editData);
+        // Get user-specific cached data
+        const cachedProfileKey = `userProfile-${user.id}`;
+        try {
+          const cachedProfile = await AsyncStorage.getItem(cachedProfileKey);
+
+          // Also check for any in-progress edits
+          const editProgressKey = `editProfile-${user.id}`;
+          const editProgress = await AsyncStorage.getItem(editProgressKey);
+
+          if (cachedProfile) {
+            try {
+              const cachedData = JSON.parse(cachedProfile);
+              // Only update if we have data - check each property individually
+              if (cachedData) {
+                setUserProfile((prev) => ({
+                  ...prev,
+                  username: cachedData.username || prev.username,
+                  email: cachedData.email || prev.email,
+                  avatarUrl: cachedData.avatarUrl || prev.avatarUrl,
+                  // Also load other fields if available
+                  fullName: cachedData.fullName || prev.fullName,
+                  birthday: cachedData.birthday || prev.birthday,
+                  gender: cachedData.gender || prev.gender,
+                  height: cachedData.height || prev.height,
+                  weight: cachedData.weight || prev.weight,
+                }));
+              }
+            } catch (parseError) {
+              console.error("Error parsing cached profile:", parseError);
+              // Record the error time
+              await AsyncStorage.setItem(
+                "PROFILE_CACHE_ERROR",
+                Date.now().toString()
+              );
+              // Continue with app initialization
+            }
+          }
+
+          // Store edit progress data for later use
+          if (editProgress) {
+            try {
+              const editData = JSON.parse(editProgress);
+              // Only set if we have valid data
+              if (editData && typeof editData === "object") {
+                setEditedProfile(editData);
+              }
+            } catch (parseError) {
+              console.error("Error parsing edit progress:", parseError);
+            }
+          }
+        } catch (storageError) {
+          console.error("AsyncStorage access error:", storageError);
+          // Record the error time
+          await AsyncStorage.setItem(
+            "PROFILE_CACHE_ERROR",
+            Date.now().toString()
+          );
+          // Continue with app initialization despite storage access errors
         }
       } catch (error) {
         console.log("Error loading cached profile:", error);
+        // Set the error flag for next app launch
+        try {
+          await AsyncStorage.setItem(
+            "PROFILE_CACHE_ERROR",
+            Date.now().toString()
+          );
+        } catch (e) {}
       }
     };
 
@@ -726,7 +830,7 @@ function SettingsScreen() {
       if (!user) return;
 
       const editProgressKey = `editProfile-${user.id}`;
-      await AsyncStorage.setItem(editProgressKey, JSON.stringify(editData));
+      await StorageManager.storeObject(editProgressKey, editData);
     } catch (error) {
       console.log("Error saving edit progress:", error);
     }
@@ -896,8 +1000,8 @@ function SettingsScreen() {
         avatar_url: finalAvatarUrl,
         gender: editedProfile.gender || "",
         birthday: birthdayValue,
-        height: heightValue,
-        weight: weightValue,
+        height: heightValue || null,
+        weight: weightValue || null,
       });
 
       // Prepare profile data for database update
@@ -907,8 +1011,8 @@ function SettingsScreen() {
         avatar_url: finalAvatarUrl,
         email: editedProfile.email,
         gender: editedProfile.gender || "",
-        height: heightValue,
-        weight: weightValue,
+        height: heightValue || null,
+        weight: weightValue || null,
         birthday: birthdayValue, // Now in ISO format for the database
         updated_at: new Date().toISOString(),
       };
@@ -938,11 +1042,57 @@ function SettingsScreen() {
       // Update state immediately for a responsive UI
       setUserProfile(updatedProfile);
 
-      // Save updated profile to local storage
-      await AsyncStorage.setItem(
-        `userProfile-${user.id}`,
-        JSON.stringify(updatedProfile)
-      );
+      // Save updated profile to local storage - using a safer approach to prevent the "Row too big" error
+      try {
+        // Extract only essential data for AsyncStorage to prevent "Row too big" error
+        const essentialProfileData = {
+          userId: updatedProfile.userId,
+          username: updatedProfile.username,
+          email: updatedProfile.email,
+          fullName: updatedProfile.fullName,
+          avatarUrl: updatedProfile.avatarUrl,
+          birthday: updatedProfile.birthday,
+          gender: updatedProfile.gender,
+          height: updatedProfile.height,
+          weight: updatedProfile.weight,
+          // Explicitly exclude large data structures: stats, goals, achievements
+        };
+
+        // Use setItem directly with string length validation
+        const jsonString = JSON.stringify(essentialProfileData);
+        if (jsonString.length > 100000) {
+          console.warn("Profile data too large, saving only minimal data");
+          const minimalData = {
+            username: essentialProfileData.username,
+            email: essentialProfileData.email,
+            avatarUrl: essentialProfileData.avatarUrl,
+          };
+          await AsyncStorage.setItem(
+            `userProfile-${user.id}`,
+            JSON.stringify(minimalData)
+          );
+        } else {
+          await AsyncStorage.setItem(`userProfile-${user.id}`, jsonString);
+        }
+        console.log("Profile cache updated successfully");
+      } catch (cacheError) {
+        console.error("Error updating profile cache:", cacheError);
+        // Try one more time with minimal data if we hit an error
+        try {
+          const minimalData = {
+            username: updatedProfile.username,
+            email: updatedProfile.email,
+            avatarUrl: updatedProfile.avatarUrl,
+          };
+          await AsyncStorage.setItem(
+            `userProfile-${user.id}`,
+            JSON.stringify(minimalData)
+          );
+          console.log("Saved minimal profile data as fallback");
+        } catch (e) {
+          console.error("Even minimal profile save failed:", e);
+        }
+      }
 
       setEditModalVisible(false);
       setIsLoading(false);

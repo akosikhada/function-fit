@@ -1,4 +1,4 @@
-package com.syvexa.testtempo
+package com.syvexa.functionfit
 
 import android.app.Application
 import android.content.res.Configuration

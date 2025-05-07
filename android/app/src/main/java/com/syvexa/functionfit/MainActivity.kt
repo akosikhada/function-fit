@@ -1,4 +1,4 @@
-package com.syvexa.testtempo
+package com.syvexa.functionfit
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

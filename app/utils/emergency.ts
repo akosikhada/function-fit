@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { supabase } from "./supabase";
 
 // This utility file contains emergency functions for fixing critical issues
 
@@ -126,6 +127,58 @@ export const resetEmergencyFlags = async () => {
     return true;
   } catch (error) {
     console.error("Error resetting emergency flags:", error);
+    return false;
+  }
+};
+
+// Add this function to clear corrupted profile cache that's causing "Row too big" errors
+export const clearCorruptedProfileCache = async (): Promise<boolean> => {
+  try {
+    console.log("🧹 Emergency profile cache cleanup started");
+    // Get the current user
+    const { data: user } = await supabase.auth.getUser();
+    if (!user?.user) {
+      console.log("No authenticated user found");
+      return false;
+    }
+
+    // First, get all AsyncStorage keys
+    const allKeys = await AsyncStorage.getAllKeys();
+
+    // Find profile-related keys for the current user
+    const profileKeys = allKeys.filter(
+      (key) =>
+        key.includes(`userProfile-${user.user.id}`) ||
+        key.includes(`editProfile-${user.user.id}`)
+    );
+
+    if (profileKeys.length === 0) {
+      console.log("No profile cache keys found");
+      return false;
+    }
+
+    console.log(`Found ${profileKeys.length} profile cache keys to clean`);
+
+    // Remove all profile cache keys
+    await AsyncStorage.multiRemove(profileKeys);
+    console.log("Successfully removed corrupted profile cache");
+
+    // Save a minimal profile with just the essential data
+    const minimalProfile = {
+      username: user.user.email?.split("@")[0] || "User",
+      email: user.user.email,
+      avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.user.id}`,
+    };
+
+    await AsyncStorage.setItem(
+      `userProfile-${user.user.id}`,
+      JSON.stringify(minimalProfile)
+    );
+    console.log("Saved minimal profile data");
+
+    return true;
+  } catch (error) {
+    console.error("Error clearing corrupted profile cache:", error);
     return false;
   }
 };

@@ -882,8 +882,8 @@ export const updateUserProfile = async (
     email?: string;
     birthday?: string;
     gender?: string;
-    height?: string;
-    weight?: string;
+    height?: string | null;
+    weight?: string | null;
     avatar_url?: string;
   }
 ) => {
@@ -911,9 +911,15 @@ export const updateUserProfile = async (
       updated_at: new Date().toISOString(),
     };
 
-    // Add all optional fields to the primary update object
-    if (height !== undefined) updateObj.height = height;
-    if (weight !== undefined) updateObj.weight = weight;
+    // Add all optional fields to the primary update object, ensuring height and weight are either valid numbers or null
+    if (height !== undefined) {
+      // Convert empty strings to null for numeric fields
+      updateObj.height = height && height.trim() !== "" ? height : null;
+    }
+    if (weight !== undefined) {
+      // Convert empty strings to null for numeric fields
+      updateObj.weight = weight && weight.trim() !== "" ? weight : null;
+    }
     if (birthday !== undefined) updateObj.birthday = birthday;
     if (gender !== undefined) updateObj.gender = gender;
 

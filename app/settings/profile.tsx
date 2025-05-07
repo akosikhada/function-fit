@@ -21,6 +21,7 @@ import {
   MapPin,
   Clock,
   Pencil,
+  Trash2,
 } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import ThemeModule from "../utils/theme";
@@ -46,6 +47,41 @@ interface UserProfile {
   avatarUrl: string;
   memberSince: string;
 }
+
+// Helper function to process optimized avatar URLs
+const processAvatarUrl = (
+  avatarUrl: string | undefined,
+  userId: string
+): string => {
+  if (!avatarUrl)
+    return `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`;
+
+  // Handle seed reference format
+  if (avatarUrl.startsWith("seed:")) {
+    const seed = avatarUrl.replace("seed:", "");
+    return `https://api.dicebear.com/7.x/avataaars/svg?seed=${seed}`;
+  }
+
+  // Handle storage reference format
+  if (avatarUrl.startsWith("storage:")) {
+    const filename = avatarUrl.replace("storage:", "");
+    // Determine URL structure based on filename pattern
+    if (filename.startsWith("profile-")) {
+      return `${
+        process.env.EXPO_PUBLIC_SUPABASE_URL ||
+        "https://vvvlpxqmbmxkwxmcfxyd.supabase.co"
+      }/storage/v1/object/public/profile-images/users/${userId}/${filename}`;
+    } else {
+      return `${
+        process.env.EXPO_PUBLIC_SUPABASE_URL ||
+        "https://vvvlpxqmbmxkwxmcfxyd.supabase.co"
+      }/storage/v1/object/public/profile-images/public/${userId}-${filename}`;
+    }
+  }
+
+  // Return the avatar URL as is if it's already a full URL
+  return avatarUrl;
+};
 
 export default function ProfileSettings() {
   const { colors, theme } = useTheme();
@@ -86,16 +122,66 @@ export default function ProfileSettings() {
 
         // Try to get cached profile first for quick load
         const cachedProfileKey = `userProfile-${user.id}`;
-        const cachedProfile = await AsyncStorage.getItem(cachedProfileKey);
+        try {
+          // Check if we've seen this error before
+          const hasRowError = await AsyncStorage.getItem("PROFILE_ROW_ERROR");
+          if (hasRowError === "true") {
+            console.log(
+              "Known Row too big error, skipping cache and using backend data"
+            );
+            // Continue without loading from cache
+          } else {
+            // Try to load from cache
+            try {
+              const cachedProfile = await AsyncStorage.getItem(
+                cachedProfileKey
+              );
 
-        if (cachedProfile) {
-          const cachedData = JSON.parse(cachedProfile);
-          if (cachedData.username || cachedData.email) {
-            setUserProfile((prev) => ({
-              ...prev,
-              ...cachedData,
-            }));
+              if (cachedProfile) {
+                try {
+                  const cachedData = JSON.parse(cachedProfile);
+                  if (cachedData) {
+                    // Apply only essential properties individually
+                    setUserProfile((prev) => ({
+                      ...prev,
+                      username: cachedData.username || prev.username,
+                      fullName: cachedData.fullName || prev.fullName,
+                      email: cachedData.email || prev.email,
+                      // Handle optimized avatar URLs
+                      avatarUrl:
+                        processAvatarUrl(cachedData.avatarUrl, user.id) ||
+                        prev.avatarUrl,
+                      birthday: cachedData.birthday || prev.birthday,
+                      gender: cachedData.gender || prev.gender,
+                      height: cachedData.height || prev.height,
+                      weight: cachedData.weight || prev.weight,
+                    }));
+                  }
+                } catch (parseError) {
+                  console.error("Error parsing cached profile:", parseError);
+                  // Mark the profile as corrupted if Row too big error
+                  if (
+                    parseError instanceof Error &&
+                    parseError.message.includes("Row too big")
+                  ) {
+                    await AsyncStorage.setItem("PROFILE_ROW_ERROR", "true");
+                  }
+                }
+              }
+            } catch (loadError) {
+              console.error("Error accessing AsyncStorage:", loadError);
+              // Mark the profile as corrupted if Row too big error
+              if (
+                loadError instanceof Error &&
+                loadError.message.includes("Row too big")
+              ) {
+                await AsyncStorage.setItem("PROFILE_ROW_ERROR", "true");
+              }
+            }
           }
+        } catch (storageError) {
+          console.error("Error checking AsyncStorage flags:", storageError);
+          // Continue loading profile from backend
         }
 
         // Get profile from Supabase
@@ -548,39 +634,78 @@ export default function ProfileSettings() {
               />
             </Animated.View>
 
-            {/* Edit Profile Button */}
+            {/* Delete Account Button */}
             <Animated.View
               style={{
                 opacity: fadeAnim,
                 transform: [{ translateY: slideAnim }],
-                marginBottom: 40,
+                marginBottom: 10,
               }}
             >
               <TouchableOpacity
                 style={{
-                  backgroundColor: isDarkMode ? "#7C3AED" : "#6366F1",
+                  backgroundColor: "#DC2626",
                   borderRadius: 16,
                   paddingVertical: 16,
                   alignItems: "center",
-                  shadowColor: isDarkMode ? "#7C3AED" : "#6366F1",
+                  shadowColor: "#DC2626",
                   shadowOffset: { width: 0, height: 4 },
                   shadowOpacity: 0.3,
                   shadowRadius: 6,
                   elevation: 5,
+                  opacity: 0.6,
                 }}
-                activeOpacity={0.8}
-                onPress={() => router.push("/settings")}
+                activeOpacity={0.4}
+                disabled={true}
               >
-                <Text
-                  style={{
-                    color: "#FFFFFF",
-                    fontSize: 16,
-                    fontWeight: "700",
-                  }}
-                >
-                  Edit Profile
-                </Text>
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <Trash2
+                    size={18}
+                    color="#FFFFFF"
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text
+                    style={{
+                      color: "#FFFFFF",
+                      fontSize: 16,
+                      fontWeight: "700",
+                    }}
+                  >
+                    Delete Account
+                  </Text>
+                </View>
               </TouchableOpacity>
+            </Animated.View>
+
+            {/* Note */}
+            <Animated.View
+              style={{
+                opacity: fadeAnim,
+                transform: [{ translateY: slideAnim }],
+                backgroundColor: isDarkMode
+                  ? "rgba(139, 92, 246, 0.1)"
+                  : "rgba(99, 102, 241, 0.05)",
+                borderRadius: 16,
+                padding: 16,
+                marginBottom: 40,
+                borderWidth: 1,
+                borderColor: isDarkMode
+                  ? "rgba(139, 92, 246, 0.2)"
+                  : "rgba(99, 102, 241, 0.1)",
+              }}
+            >
+              <Text
+                style={{
+                  color: colors.text,
+                  fontSize: 14,
+                  lineHeight: 20,
+                  letterSpacing: -0.2,
+                }}
+              >
+                Note: Account deletion functionality is currently in
+                development. This feature will be fully implemented in an
+                upcoming update.
+              </Text>
             </Animated.View>
           </>
         )}
