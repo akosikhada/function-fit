@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -18,20 +18,30 @@ import {
   ArrowLeft,
   Search,
   FilterIcon,
-  AppleIcon,
   TrendingUp,
   Clock,
   Calendar,
   ChevronRight,
   PlusCircle,
-  Salad,
+  X,
+} from "lucide-react-native";
+import {
+  AppleIcon,
   Drumstick,
   Fish,
   Egg,
   Milk,
-} from "lucide-react-native";
-import ThemeModule from "../utils/theme";
-const { useTheme } = ThemeModule;
+  Salad,
+} from "../components/Icons";
+import { BlurView } from "expo-blur";
+import { useTheme } from "../utils/theme";
+import {
+  DataPoint,
+  Cluster,
+  kMeansClustering,
+  normalizeFeatures,
+} from "../utils/clustering";
+
 const { width } = Dimensions.get("window");
 
 // Define food nutrition interface
@@ -848,7 +858,66 @@ const NUTRIENT_THRESHOLDS = {
   LOW_CALORIE: 150, // calories per 100g
 };
 
-// Function to identify nutritional focus of a food
+// K-means clustering function for foods
+const getClusteredFoods = () => {
+  // Convert food data into data points for clustering
+  const dataPoints: DataPoint[] = foodsNutrition.map((food) => ({
+    id: food.id,
+    name: food.name,
+    // Use nutritional values as features for clustering
+    features: [
+      food.protein, // Protein content
+      food.carbs, // Carb content
+      food.fat, // Fat content
+      food.calories, // Calorie content
+    ],
+  }));
+
+  // Normalize the data for better clustering results
+  const normalizedDataPoints = normalizeFeatures(dataPoints);
+
+  // Run K-means with 5 clusters (same number as our previous categories)
+  const clusters = kMeansClustering(normalizedDataPoints, 5);
+
+  // Name the clusters based on their centroids
+  const namedClusters: { [key: string]: FoodNutrition[] } = {};
+
+  clusters.forEach((cluster, index) => {
+    // Analyze the centroid to determine the cluster's character
+    const centroid = cluster.centroid;
+    // Features: [protein, carbs, fat, calories] (all normalized between 0-1)
+
+    let clusterName = "";
+
+    // Determine the dominant characteristic of this cluster
+    if (centroid[0] > 0.6) {
+      // High protein
+      clusterName = "High Protein";
+    } else if (centroid[1] > 0.6) {
+      // High carbs
+      clusterName = "High Carbs";
+    } else if (centroid[2] > 0.6) {
+      // High fat
+      clusterName = "High Fat";
+    } else if (centroid[3] < 0.3) {
+      // Low calorie
+      clusterName = "Lean Protein";
+    } else {
+      clusterName = "Balanced";
+    }
+
+    // Get all the original food objects for this cluster
+    const clusterFoods = cluster.points.map(
+      (point) => foodsNutrition.find((food) => food.id === point.id)!
+    );
+
+    namedClusters[clusterName] = clusterFoods;
+  });
+
+  return namedClusters;
+};
+
+// Function to identify nutritional focus of a food - original rule-based approach
 const getNutrientFocus = (food: FoodNutrition): string[] => {
   const focuses: string[] = [];
 
@@ -890,26 +959,10 @@ const getNutrientFocus = (food: FoodNutrition): string[] => {
   return focuses;
 };
 
-// Group foods by nutrient focus
+// Group foods by nutrient focus - replace with K-means clustering
 const getFoodsByNutrient = () => {
-  const byNutrient: { [key: string]: FoodNutrition[] } = {
-    "High Protein": [],
-    "High Carbs": [],
-    "High Fat": [],
-    "Lean Protein": [],
-    Balanced: [],
-  };
-
-  foodsNutrition.forEach((food) => {
-    const focuses = getNutrientFocus(food);
-    focuses.forEach((focus) => {
-      if (byNutrient[focus]) {
-        byNutrient[focus].push(food);
-      }
-    });
-  });
-
-  return byNutrient;
+  // Use K-means clustering instead of rule-based categorization
+  return getClusteredFoods();
 };
 
 export default function NutritionScreen() {
@@ -926,6 +979,7 @@ export default function NutritionScreen() {
   const [categoryFilteredFoods, setCategoryFilteredFoods] = useState<
     FoodNutrition[]
   >([]);
+  const [showKMeansExplanation, setShowKMeansExplanation] = useState(false);
 
   // Get foods grouped by nutrient focus
   const foodsByNutrient = getFoodsByNutrient();
@@ -1018,147 +1072,56 @@ export default function NutritionScreen() {
       style={{
         backgroundColor: isDarkMode ? "#000000" : colors.background,
         paddingTop:
-          Platform.OS === "ios" ? 12 : (StatusBar.currentHeight || 12) + 10,
+          Platform.OS === "ios" ? 16 : (StatusBar.currentHeight || 16) + 10,
+        paddingBottom: 16,
       }}
-      className="px-5 pb-4 border-b border-gray-200 dark:border-gray-800"
+      className="px-6 border-b border-gray-200 dark:border-gray-800"
     >
-      <View className="flex-row items-center justify-between">
+      <View className="flex-row items-center">
         <TouchableOpacity
+          activeOpacity={0.8}
           onPress={() => router.back()}
-          className="p-2 rounded-full"
+          className="p-2.5 rounded-full mr-4"
           style={{
             backgroundColor: isDarkMode
-              ? "rgba(255,255,255,0.1)"
-              : "rgba(0,0,0,0.05)",
+              ? "rgba(255,255,255,0.08)"
+              : "rgba(0,0,0,0.03)",
           }}
         >
-          <ArrowLeft size={20} color={isDarkMode ? "#FFFFFF" : colors.text} />
+          <ArrowLeft size={22} color={isDarkMode ? "#FFFFFF" : colors.text} />
         </TouchableOpacity>
         <Text
           style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
-          className="text-xl font-semibold"
+          className="text-2xl font-bold"
         >
           Nutrition
         </Text>
-        <TouchableOpacity
-          className="p-2 rounded-full"
-          style={{
-            backgroundColor: isDarkMode
-              ? "rgba(255,255,255,0.1)"
-              : "rgba(0,0,0,0.05)",
-          }}
-        >
-          <FilterIcon size={20} color={isDarkMode ? "#FFFFFF" : colors.text} />
-        </TouchableOpacity>
       </View>
     </View>
   );
-
-  const NutritionProgress = () => {
-    const nutrients = [
-      {
-        name: "Calories",
-        value: 1850,
-        target: 2200,
-        unit: "kcal",
-        color: "#8B5CF6",
-      },
-      { name: "Protein", value: 95, target: 120, unit: "g", color: "#10B981" },
-      { name: "Carbs", value: 210, target: 250, unit: "g", color: "#F59E0B" },
-      { name: "Fat", value: 65, target: 70, unit: "g", color: "#EF4444" },
-    ];
-
-    return (
-      <View
-        className="mx-5 my-5 p-5 rounded-2xl shadow-sm"
-        style={{
-          backgroundColor: isDarkMode ? "#111827" : "#FFFFFF",
-          elevation: 2,
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.08,
-          shadowRadius: 2,
-        }}
-      >
-        <View className="flex-row items-center justify-between mb-4">
-          <Text
-            className="text-xl font-bold"
-            style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
-          >
-            Today's Progress
-          </Text>
-          <TouchableOpacity>
-            <Text className="text-sm font-medium" style={{ color: "#8B5CF6" }}>
-              Details
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <View className="flex-row flex-wrap justify-between">
-          {nutrients.map((nutrient, index) => {
-            const progress = (nutrient.value / nutrient.target) * 100;
-            return (
-              <View key={index} className="mb-4" style={{ width: "48%" }}>
-                <View className="flex-row justify-between items-center mb-1">
-                  <Text
-                    className="text-sm font-medium"
-                    style={{ color: isDarkMode ? "#D1D5DB" : "#4B5563" }}
-                  >
-                    {nutrient.name}
-                  </Text>
-                  <Text
-                    className="text-sm"
-                    style={{ color: isDarkMode ? "#D1D5DB" : "#4B5563" }}
-                  >
-                    {nutrient.value}/{nutrient.target} {nutrient.unit}
-                  </Text>
-                </View>
-                <View className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                  <View
-                    className="h-full rounded-full"
-                    style={{
-                      width: `${Math.min(progress, 100)}%`,
-                      backgroundColor: nutrient.color,
-                    }}
-                  />
-                </View>
-              </View>
-            );
-          })}
-        </View>
-
-        <TouchableOpacity
-          className="mt-3 py-3 rounded-xl flex-row items-center justify-center"
-          style={{ backgroundColor: "#8B5CF6" }}
-        >
-          <PlusCircle size={18} color="#FFFFFF" />
-          <Text className="ml-2 text-white font-semibold">Log Food</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  };
 
   // Foods Nutrition Card
   const FoodNutritionCard = ({ food }: { food: FoodNutrition }) => {
     return (
       <TouchableOpacity
-        className="rounded-2xl overflow-hidden shadow-sm mb-3"
+        activeOpacity={0.8}
+        className="rounded-2xl overflow-hidden shadow-sm mb-4"
         style={{
           backgroundColor: isDarkMode ? "#111827" : "#FFFFFF",
           elevation: 2,
           shadowColor: "#000",
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.08,
-          shadowRadius: 2,
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.09,
+          shadowRadius: 3,
         }}
       >
         <View className="flex-row">
           <Image
             source={{ uri: food.image }}
-            className="w-24 h-full"
+            className="w-28 h-full"
             resizeMode="cover"
           />
-          <View className="flex-1 p-3">
+          <View className="flex-1 p-4">
             <View className="flex-row justify-between items-center">
               <Text
                 className="text-lg font-bold"
@@ -1167,11 +1130,11 @@ export default function NutritionScreen() {
                 {food.name}
               </Text>
               <View
-                className="px-2 py-1 rounded-full"
+                className="px-2.5 py-1 rounded-full"
                 style={{ backgroundColor: `${food.color}20` }}
               >
                 <Text
-                  className="text-xs font-medium"
+                  className="text-xs font-semibold"
                   style={{ color: food.color }}
                 >
                   {food.category}
@@ -1179,38 +1142,38 @@ export default function NutritionScreen() {
               </View>
             </View>
 
-            <View className="flex-row items-center flex-wrap mt-2">
-              <View className="flex-row items-center mr-3 mb-1">
+            <View className="flex-row items-center flex-wrap mt-3">
+              <View className="flex-row items-center mr-4 mb-1.5">
                 <food.icon
                   size={14}
                   color={isDarkMode ? "#D1D5DB" : "#6B7280"}
                 />
                 <Text
-                  className="ml-1 text-xs"
+                  className="ml-1 text-xs font-medium"
                   style={{ color: isDarkMode ? "#D1D5DB" : "#6B7280" }}
                 >
                   {food.calories} cal
                 </Text>
               </View>
-              <View className="flex-row mr-3 mb-1">
+              <View className="flex-row mr-4 mb-1.5">
                 <Text
-                  className="text-xs font-medium"
+                  className="text-xs font-semibold"
                   style={{ color: "#10B981" }}
                 >
                   P: {food.protein}g
                 </Text>
               </View>
-              <View className="flex-row mr-3 mb-1">
+              <View className="flex-row mr-4 mb-1.5">
                 <Text
-                  className="text-xs font-medium"
+                  className="text-xs font-semibold"
                   style={{ color: "#F59E0B" }}
                 >
                   C: {food.carbs}g
                 </Text>
               </View>
-              <View className="flex-row mb-1">
+              <View className="flex-row mb-1.5">
                 <Text
-                  className="text-xs font-medium"
+                  className="text-xs font-semibold"
                   style={{ color: "#EF4444" }}
                 >
                   F: {food.fat}g
@@ -1218,18 +1181,21 @@ export default function NutritionScreen() {
               </View>
             </View>
 
-            <View className="flex-row flex-wrap mt-1">
+            <View className="flex-row flex-wrap mt-2">
               {food.benefits.map((benefit: string, index: number) => (
                 <View
                   key={index}
-                  className="mr-2 mb-1 px-2 py-0.5 rounded-md"
+                  className="mr-2 mb-1.5 px-2.5 py-0.5 rounded-md"
                   style={{
                     backgroundColor: isDarkMode
                       ? "rgba(139, 92, 246, 0.2)"
                       : "rgba(139, 92, 246, 0.1)",
                   }}
                 >
-                  <Text className="text-xs" style={{ color: "#8B5CF6" }}>
+                  <Text
+                    className="text-xs font-medium"
+                    style={{ color: "#8B5CF6" }}
+                  >
                     {benefit}
                   </Text>
                 </View>
@@ -1301,40 +1267,41 @@ export default function NutritionScreen() {
             style={{
               paddingTop:
                 Platform.OS === "ios"
-                  ? 12
-                  : (StatusBar.currentHeight || 12) + 10,
+                  ? 16
+                  : (StatusBar.currentHeight || 16) + 10,
+              paddingBottom: 16,
               backgroundColor: isDarkMode ? "#000000" : colors.background,
             }}
-            className="px-5 pb-4 border-b border-gray-200 dark:border-gray-800"
+            className="px-6 border-b border-gray-200 dark:border-gray-800"
           >
-            <View className="flex-row items-center justify-between">
+            <View className="flex-row items-center">
               <TouchableOpacity
+                activeOpacity={0.8}
                 onPress={() => setShowAllFoods(false)}
-                className="p-2 rounded-full"
+                className="p-2.5 rounded-full mr-4"
                 style={{
                   backgroundColor: isDarkMode
-                    ? "rgba(255,255,255,0.1)"
-                    : "rgba(0,0,0,0.05)",
+                    ? "rgba(255,255,255,0.08)"
+                    : "rgba(0,0,0,0.03)",
                 }}
               >
                 <ArrowLeft
-                  size={20}
+                  size={22}
                   color={isDarkMode ? "#FFFFFF" : colors.text}
                 />
               </TouchableOpacity>
               <Text
                 style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
-                className="text-xl font-semibold"
+                className="text-2xl font-bold"
               >
                 All Foods
               </Text>
-              <View style={{ width: 40 }} />
             </View>
           </View>
 
-          <View className="px-5 pt-4 pb-2">
+          <View className="px-6 pt-4 pb-2">
             <View
-              className="flex-row items-center px-4 py-3 rounded-xl"
+              className="flex-row items-center px-4 py-3.5 rounded-xl"
               style={{ backgroundColor: isDarkMode ? "#111827" : "#F3F4F6" }}
             >
               <Search size={18} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
@@ -1343,9 +1310,9 @@ export default function NutritionScreen() {
                 placeholderTextColor={isDarkMode ? "#9CA3AF" : "#6B7280"}
                 style={{
                   flex: 1,
-                  marginLeft: 8,
+                  marginLeft: 10,
                   color: isDarkMode ? "#FFFFFF" : "#000000",
-                  fontSize: 14,
+                  fontSize: 15,
                 }}
                 value={searchQuery}
                 onChangeText={handleSearch}
@@ -1353,22 +1320,23 @@ export default function NutritionScreen() {
             </View>
           </View>
 
-          <View className="mb-3">
+          <View className="mb-4">
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{
-                paddingHorizontal: 20,
-                paddingVertical: 8,
+                paddingHorizontal: 24,
+                paddingVertical: 10,
               }}
             >
               {modalCategories.map((category) => {
                 const count = getCategoryCount(category.id);
                 return (
                   <TouchableOpacity
+                    activeOpacity={0.8}
                     key={category.id}
                     onPress={() => handleCategoryChange(category.id)}
-                    className="mr-3 py-2 rounded-xl flex-row items-center"
+                    className="mr-3 py-2.5 rounded-xl flex-row items-center"
                     style={{
                       backgroundColor:
                         category.id === activeModalCategory
@@ -1376,12 +1344,13 @@ export default function NutritionScreen() {
                           : isDarkMode
                           ? "#111827"
                           : "#F3F4F6",
-                      paddingLeft: 10,
-                      paddingRight: 12,
+                      paddingLeft: 12,
+                      paddingRight: 14,
                     }}
                   >
                     <category.icon
-                      size={16}
+                      width={18}
+                      height={18}
                       color={
                         category.id === activeModalCategory
                           ? "#FFFFFF"
@@ -1391,7 +1360,7 @@ export default function NutritionScreen() {
                       }
                     />
                     <Text
-                      className="mx-2 font-medium"
+                      className="mx-2 font-semibold"
                       style={{
                         color:
                           category.id === activeModalCategory
@@ -1404,7 +1373,7 @@ export default function NutritionScreen() {
                       {category.name}
                     </Text>
                     <View
-                      className="px-1.5 rounded-full"
+                      className="px-2 py-0.5 rounded-full"
                       style={{
                         backgroundColor:
                           category.id === activeModalCategory
@@ -1415,7 +1384,7 @@ export default function NutritionScreen() {
                       }}
                     >
                       <Text
-                        className="text-xs font-medium"
+                        className="text-xs font-semibold"
                         style={{
                           color:
                             category.id === activeModalCategory
@@ -1437,12 +1406,15 @@ export default function NutritionScreen() {
           <FlatList
             data={filteredFoods}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={{ padding: 20, paddingTop: 10 }}
+            contentContainerStyle={{ padding: 24, paddingTop: 0 }}
             renderItem={({ item }) => <FoodNutritionCard food={item} />}
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={
               <View className="items-center justify-center py-20">
-                <Text style={{ color: isDarkMode ? "#9CA3AF" : "#6B7280" }}>
+                <Text
+                  className="text-base"
+                  style={{ color: isDarkMode ? "#9CA3AF" : "#6B7280" }}
+                >
                   No foods found matching your criteria
                 </Text>
               </View>
@@ -1450,97 +1422,6 @@ export default function NutritionScreen() {
           />
         </SafeAreaView>
       </Modal>
-    );
-  };
-
-  // Foods By Nutrient Component
-  const FoodsByNutrientSection = () => {
-    // Color map for nutrient categories
-    const nutrientColors: { [key: string]: string } = {
-      "High Protein": "#EC4899",
-      "High Carbs": "#F59E0B",
-      "High Fat": "#3B82F6",
-      "Lean Protein": "#10B981",
-      Balanced: "#8B5CF6",
-    };
-
-    // Icon map for nutrient categories
-    const nutrientIcons: { [key: string]: any } = {
-      "High Protein": Drumstick,
-      "High Carbs": AppleIcon,
-      "High Fat": Salad,
-      "Lean Protein": Fish,
-      Balanced: AppleIcon,
-    };
-
-    return (
-      <View className="px-5 mb-6">
-        <View className="flex-row items-center justify-between mb-4">
-          <Text
-            className="text-xl font-bold"
-            style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
-          >
-            Foods by Macro
-          </Text>
-          <TouchableOpacity
-            className="flex-row items-center"
-            onPress={() => {
-              setShowAllFoods(true);
-              filterFoods("1");
-            }}
-          >
-            <Text
-              className="text-sm font-medium mr-1"
-              style={{ color: "#8B5CF6" }}
-            >
-              See All
-            </Text>
-            <ChevronRight size={16} color="#8B5CF6" />
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingRight: 20 }}
-          className="mb-3"
-        >
-          {Object.keys(foodsByNutrient).map((nutrient, index) => {
-            if (foodsByNutrient[nutrient].length === 0) return null;
-
-            const IconComponent = nutrientIcons[nutrient] || AppleIcon;
-            const color = nutrientColors[nutrient] || "#8B5CF6";
-
-            return (
-              <TouchableOpacity
-                key={index}
-                className="mr-3 rounded-xl overflow-hidden"
-                style={{ width: 160 }}
-                onPress={() => setShowNutrientCategory(nutrient)}
-              >
-                <View
-                  className="p-4 items-center justify-center"
-                  style={{ backgroundColor: `${color}15`, height: 120 }}
-                >
-                  <IconComponent size={32} color={color} />
-                  <Text
-                    className="mt-3 text-base font-bold text-center"
-                    style={{ color }}
-                  >
-                    {nutrient}
-                  </Text>
-                  <Text
-                    className="text-xs text-center mt-1"
-                    style={{ color: isDarkMode ? "#D1D5DB" : "#6B7280" }}
-                  >
-                    {foodsByNutrient[nutrient].length} foods
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
     );
   };
 
@@ -1576,41 +1457,42 @@ export default function NutritionScreen() {
             style={{
               paddingTop:
                 Platform.OS === "ios"
-                  ? 12
-                  : (StatusBar.currentHeight || 12) + 10,
+                  ? 16
+                  : (StatusBar.currentHeight || 16) + 10,
+              paddingBottom: 16,
               backgroundColor: isDarkMode ? "#000000" : colors.background,
             }}
-            className="px-5 pb-4 border-b border-gray-200 dark:border-gray-800"
+            className="px-6 border-b border-gray-200 dark:border-gray-800"
           >
-            <View className="flex-row items-center justify-between">
+            <View className="flex-row items-center">
               <TouchableOpacity
+                activeOpacity={0.8}
                 onPress={() => setShowNutrientCategory(null)}
-                className="p-2 rounded-full"
+                className="p-2.5 rounded-full mr-4"
                 style={{
                   backgroundColor: isDarkMode
-                    ? "rgba(255,255,255,0.1)"
-                    : "rgba(0,0,0,0.05)",
+                    ? "rgba(255,255,255,0.08)"
+                    : "rgba(0,0,0,0.03)",
                 }}
               >
                 <ArrowLeft
-                  size={20}
+                  size={22}
                   color={isDarkMode ? "#FFFFFF" : colors.text}
                 />
               </TouchableOpacity>
               <Text
                 style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
-                className="text-xl font-semibold"
+                className="text-2xl font-bold"
               >
                 {showNutrientCategory} Foods
               </Text>
-              <View style={{ width: 40 }} />
             </View>
           </View>
 
           {/* Search bar for category */}
-          <View className="px-5 pt-4 pb-2">
+          <View className="px-6 pt-4 pb-2">
             <View
-              className="flex-row items-center px-4 py-3 rounded-xl"
+              className="flex-row items-center px-4 py-3.5 rounded-xl"
               style={{ backgroundColor: isDarkMode ? "#111827" : "#F3F4F6" }}
             >
               <Search size={18} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
@@ -1619,9 +1501,9 @@ export default function NutritionScreen() {
                 placeholderTextColor={isDarkMode ? "#9CA3AF" : "#6B7280"}
                 style={{
                   flex: 1,
-                  marginLeft: 8,
+                  marginLeft: 10,
                   color: isDarkMode ? "#FFFFFF" : "#000000",
-                  fontSize: 14,
+                  fontSize: 15,
                 }}
                 value={categorySearchQuery}
                 onChangeText={(text) => {
@@ -1633,28 +1515,32 @@ export default function NutritionScreen() {
           </View>
 
           {/* Nutrient category info */}
-          <View className="px-5 py-2">
+          <View className="px-6 py-3">
             <View
-              className="p-3 rounded-lg mb-3 flex-row items-center"
-              style={{ backgroundColor: `${color}15` }}
+              className="p-4 rounded-xl mb-3 flex-row items-center"
+              style={{
+                backgroundColor: `${color}15`,
+                borderWidth: 1,
+                borderColor: `${color}30`,
+              }}
             >
               <View
-                className="w-8 h-8 rounded-full items-center justify-center mr-3"
+                className="w-12 h-12 rounded-full items-center justify-center mr-4"
                 style={{ backgroundColor: color }}
               >
-                <Text className="text-white font-bold">
+                <Text className="text-white font-bold text-base">
                   {categoryFilteredFoods.length}
                 </Text>
               </View>
               <View className="flex-1">
                 <Text
-                  className="font-semibold"
+                  className="text-lg font-bold"
                   style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
                 >
                   {showNutrientCategory} foods
                 </Text>
                 <Text
-                  className="text-xs"
+                  className="text-xs mt-1"
                   style={{ color: isDarkMode ? "#9CA3AF" : "#6B7280" }}
                 >
                   {showNutrientCategory === "High Protein"
@@ -1674,12 +1560,15 @@ export default function NutritionScreen() {
           <FlatList
             data={categoryFilteredFoods}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={{ padding: 20, paddingTop: 0 }}
+            contentContainerStyle={{ padding: 24, paddingTop: 4 }}
             renderItem={({ item }) => <FoodNutritionCard food={item} />}
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={
               <View className="items-center justify-center py-20">
-                <Text style={{ color: isDarkMode ? "#9CA3AF" : "#6B7280" }}>
+                <Text
+                  className="text-base"
+                  style={{ color: isDarkMode ? "#9CA3AF" : "#6B7280" }}
+                >
                   No foods found matching your criteria
                 </Text>
               </View>
@@ -1690,325 +1579,381 @@ export default function NutritionScreen() {
     );
   };
 
-  return (
-    <SafeAreaView
-      style={{
-        flex: 1,
-        backgroundColor: isDarkMode ? "#000000" : colors.background,
-      }}
-      className="pb-0"
-    >
-      <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
-      <Stack.Screen options={{ headerShown: false }} />
+  // Foods by Nutrient Section - Original section that shows rule-based categories
+  const FoodsByNutrientSection = () => {
+    // Color map for nutrient categories
+    const nutrientColors: { [key: string]: string } = {
+      "High Protein": "#EC4899",
+      "High Carbs": "#F59E0B",
+      "High Fat": "#3B82F6",
+      "Lean Protein": "#10B981",
+      Balanced: "#8B5CF6",
+    };
 
-      <Header />
+    // Icon map for nutrient categories
+    const nutrientIcons: { [key: string]: any } = {
+      "High Protein": Drumstick,
+      "High Carbs": AppleIcon,
+      "High Fat": Salad,
+      "Lean Protein": Fish,
+      Balanced: AppleIcon,
+    };
 
-      <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-        {/* Search bar */}
-        <View className="px-5 pt-4 pb-2">
+    return (
+      <View className="px-6 mb-6">
+        <View className="flex-row items-center justify-between mb-5">
+          <Text
+            className="text-2xl font-bold"
+            style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
+          >
+            Foods by Macro
+          </Text>
           <TouchableOpacity
-            className="flex-row items-center px-4 py-3 rounded-xl"
-            style={{ backgroundColor: isDarkMode ? "#111827" : "#F3F4F6" }}
+            activeOpacity={0.8}
+            className="flex-row items-center"
             onPress={() => {
               setShowAllFoods(true);
-              filterFoods("1", ""); // Reset filters when opening all foods
-              setSearchQuery("");
+              filterFoods("1");
             }}
           >
-            <Search size={18} color={isDarkMode ? "#9CA3AF" : "#6B7280"} />
             <Text
-              className="ml-2 text-sm"
-              style={{ color: isDarkMode ? "#9CA3AF" : "#6B7280" }}
+              className="text-sm font-semibold mr-1"
+              style={{ color: "#8B5CF6" }}
             >
-              Search for meals, foods, nutrients...
+              See All
             </Text>
+            <ChevronRight size={16} color="#8B5CF6" />
           </TouchableOpacity>
         </View>
 
-        {/* Categories */}
-        <View className="mt-1 mb-1">
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 20 }}
-            className="py-2"
-          >
-            {activeCategories.map((category) => (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          className="pb-3"
+          contentContainerStyle={{ paddingRight: 12 }}
+        >
+          {Object.keys(foodsByNutrient).map((category) => {
+            const categoryFoods = foodsByNutrient[category];
+            const color = nutrientColors[category] || "#8B5CF6";
+            const Icon = nutrientIcons[category] || AppleIcon;
+
+            return (
               <TouchableOpacity
-                key={category.id}
-                onPress={() => selectCategory(category.id)}
-                className="mr-3 px-4 py-2 rounded-full flex-row items-center"
-                style={{
-                  backgroundColor: category.selected
-                    ? "#8B5CF6"
-                    : isDarkMode
-                    ? "#111827"
-                    : "#F3F4F6",
+                activeOpacity={0.8}
+                key={category}
+                className="mr-5"
+                style={{ width: width * 0.6 }}
+                onPress={() => {
+                  setShowNutrientCategory(category);
                 }}
               >
-                <category.icon
-                  size={16}
-                  color={
-                    category.selected
-                      ? "#FFFFFF"
-                      : isDarkMode
-                      ? "#9CA3AF"
-                      : "#6B7280"
-                  }
-                />
-                <Text
-                  className="ml-2 font-medium"
+                <View
+                  className="p-5 rounded-xl mb-2"
                   style={{
-                    color: category.selected
-                      ? "#FFFFFF"
-                      : isDarkMode
-                      ? "#9CA3AF"
-                      : "#6B7280",
+                    backgroundColor: `${color}15`,
+                    borderWidth: 1,
+                    borderColor: `${color}30`,
                   }}
                 >
-                  {category.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-
-        {/* Daily nutrition progress */}
-        <NutritionProgress />
-
-        {/* Foods by Nutrient Section */}
-        <FoodsByNutrientSection />
-
-        {/* Foods Nutrition Section */}
-        <View className="px-5 mb-6">
-          <View className="flex-row items-center justify-between mb-4">
-            <Text
-              className="text-xl font-bold"
-              style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
-            >
-              Foods Nutrition
-            </Text>
-            <TouchableOpacity
-              className="flex-row items-center"
-              onPress={() => {
-                setShowAllFoods(true);
-                filterFoods("1", ""); // Reset filters when opening all foods
-                setSearchQuery("");
-              }}
-            >
-              <Text
-                className="text-sm font-medium mr-1"
-                style={{ color: "#8B5CF6" }}
-              >
-                Browse All
-              </Text>
-              <ChevronRight size={16} color="#8B5CF6" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Show only first 5 foods in the main view to avoid performance issues */}
-          {foodsNutrition.slice(0, 5).map((food) => (
-            <FoodNutritionCard key={food.id} food={food} />
-          ))}
-
-          <TouchableOpacity
-            className="mt-2 py-3 rounded-xl flex-row items-center justify-center"
-            style={{
-              backgroundColor: isDarkMode
-                ? "rgba(139, 92, 246, 0.2)"
-                : "rgba(139, 92, 246, 0.1)",
-            }}
-            onPress={() => {
-              setShowAllFoods(true);
-              filterFoods("1", ""); // Reset filters when opening all foods
-              setSearchQuery("");
-            }}
-          >
-            <Text className="font-semibold" style={{ color: "#8B5CF6" }}>
-              View All 50 Foods
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Meal Plans Section */}
-        <View className="px-5 mb-6">
-          <View className="flex-row items-center justify-between mb-4">
-            <Text
-              className="text-xl font-bold"
-              style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
-            >
-              Meal Plans
-            </Text>
-            <TouchableOpacity className="flex-row items-center">
-              <Text
-                className="text-sm font-medium mr-1"
-                style={{ color: "#8B5CF6" }}
-              >
-                View All
-              </Text>
-              <ChevronRight size={16} color="#8B5CF6" />
-            </TouchableOpacity>
-          </View>
-
-          {mealPlans.map((plan) => (
-            <TouchableOpacity
-              key={plan.id}
-              className="mb-4 rounded-2xl overflow-hidden shadow-sm"
-              style={{
-                backgroundColor: isDarkMode ? "#111827" : "#FFFFFF",
-                elevation: 2,
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: 1 },
-                shadowOpacity: 0.08,
-                shadowRadius: 2,
-              }}
-            >
-              <Image
-                source={{ uri: plan.image }}
-                className="w-full h-48"
-                resizeMode="cover"
-              />
-              <View className="p-4">
-                <Text
-                  className="text-lg font-bold"
-                  style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
-                >
-                  {plan.title}
-                </Text>
-
-                <View className="flex-row items-center mt-2 mb-2">
-                  <View className="flex-row items-center mr-4">
-                    <AppleIcon
-                      size={16}
-                      color={isDarkMode ? "#D1D5DB" : "#6B7280"}
-                    />
-                    <Text
-                      className="ml-1 text-sm"
-                      style={{ color: isDarkMode ? "#D1D5DB" : "#6B7280" }}
-                    >
-                      {plan.calories} cal
-                    </Text>
-                  </View>
-                  <View className="flex-row items-center">
-                    <Calendar
-                      size={16}
-                      color={isDarkMode ? "#D1D5DB" : "#6B7280"}
-                    />
-                    <Text
-                      className="ml-1 text-sm"
-                      style={{ color: isDarkMode ? "#D1D5DB" : "#6B7280" }}
-                    >
-                      {plan.duration}
-                    </Text>
-                  </View>
-                </View>
-
-                <View className="flex-row mt-1">
-                  {plan.tags.map((tag, index) => (
+                  <View className="flex-row justify-between items-center mb-3">
                     <View
-                      key={index}
-                      className="mr-2 px-2 py-1 rounded-md"
-                      style={{
-                        backgroundColor: isDarkMode
-                          ? "rgba(139, 92, 246, 0.2)"
-                          : "rgba(139, 92, 246, 0.1)",
-                      }}
+                      className="w-12 h-12 rounded-full items-center justify-center"
+                      style={{ backgroundColor: color }}
+                    >
+                      <Icon size={24} color="#FFFFFF" />
+                    </View>
+                    <View
+                      className="px-3 py-1.5 rounded-full"
+                      style={{ backgroundColor: `${color}30` }}
                     >
                       <Text
-                        className="text-xs font-medium"
-                        style={{ color: "#8B5CF6" }}
+                        className="text-xs font-semibold"
+                        style={{ color: color }}
                       >
-                        {tag}
+                        {categoryFoods.length} foods
                       </Text>
                     </View>
-                  ))}
-                </View>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Nutrition Tips Section */}
-        <View className="px-5 mb-8">
-          <View className="flex-row items-center justify-between mb-4">
-            <Text
-              className="text-xl font-bold"
-              style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
-            >
-              Nutrition Tips
-            </Text>
-            <TouchableOpacity className="flex-row items-center">
-              <Text
-                className="text-sm font-medium mr-1"
-                style={{ color: "#8B5CF6" }}
-              >
-                See All
-              </Text>
-              <ChevronRight size={16} color="#8B5CF6" />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingRight: 20 }}
-            className="space-x-4"
-          >
-            {nutritionTips.map((tip) => (
-              <TouchableOpacity
-                key={tip.id}
-                className="w-72 rounded-2xl overflow-hidden shadow-sm"
-                style={{
-                  backgroundColor: isDarkMode ? "#111827" : "#FFFFFF",
-                  elevation: 2,
-                  shadowColor: "#000",
-                  shadowOffset: { width: 0, height: 1 },
-                  shadowOpacity: 0.08,
-                  shadowRadius: 2,
-                }}
-              >
-                <Image
-                  source={{ uri: tip.image }}
-                  className="w-full h-40"
-                  resizeMode="cover"
-                />
-                <View className="p-4">
+                  </View>
                   <Text
                     className="text-lg font-bold"
                     style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
                   >
-                    {tip.title}
+                    {category}
                   </Text>
                   <Text
-                    className="mt-1 text-sm"
+                    className="text-xs mt-1.5"
                     style={{ color: isDarkMode ? "#9CA3AF" : "#6B7280" }}
                   >
-                    {tip.description}
+                    {category === "High Protein"
+                      ? "Foods rich in protein content"
+                      : category === "High Carbs"
+                      ? "Foods high in carbohydrates"
+                      : category === "High Fat"
+                      ? "Foods with healthy fat content"
+                      : category === "Lean Protein"
+                      ? "Low-calorie protein sources"
+                      : "Foods with balanced nutrients"}
                   </Text>
-                  <View className="flex-row items-center mt-3">
-                    <Clock
-                      size={14}
-                      color={isDarkMode ? "#9CA3AF" : "#6B7280"}
-                    />
-                    <Text
-                      className="ml-1 text-xs"
-                      style={{ color: isDarkMode ? "#9CA3AF" : "#6B7280" }}
-                    >
-                      {tip.readTime}
-                    </Text>
-                  </View>
                 </View>
               </TouchableOpacity>
-            ))}
-          </ScrollView>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  };
+
+  // FoodsByKMeansSection - A component to display our K-means clustering results
+  const FoodsByKMeansSection = () => {
+    // Get nutrient color map
+    const nutrientColors: { [key: string]: string } = {
+      "High Protein": "#EC4899",
+      "High Carbs": "#F59E0B",
+      "High Fat": "#3B82F6",
+      "Lean Protein": "#10B981",
+      Balanced: "#8B5CF6",
+    };
+
+    // Get nutrient icon map
+    const nutrientIcons: { [key: string]: any } = {
+      "High Protein": Drumstick,
+      "High Carbs": AppleIcon,
+      "High Fat": Salad,
+      "Lean Protein": Fish,
+      Balanced: AppleIcon,
+    };
+
+    return (
+      <View className="px-6 mb-8 mt-4">
+        <View className="flex-row items-center justify-between mb-5">
+          <Text
+            className="text-2xl font-bold"
+            style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
+          >
+            Food Clusters
+          </Text>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            className="flex-row items-center"
+            onPress={() => setShowKMeansExplanation(true)}
+          >
+            <Text
+              className="text-sm font-semibold mr-1"
+              style={{ color: "#8B5CF6" }}
+            >
+              How It Works
+            </Text>
+            <ChevronRight size={16} color="#8B5CF6" />
+          </TouchableOpacity>
         </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          className="pb-3"
+          contentContainerStyle={{ paddingRight: 12 }}
+        >
+          {Object.keys(foodsByNutrient).map((category) => {
+            const categoryFoods = foodsByNutrient[category];
+            const color = nutrientColors[category] || "#8B5CF6";
+            const Icon = nutrientIcons[category] || AppleIcon;
+
+            return (
+              <TouchableOpacity
+                activeOpacity={0.8}
+                key={category}
+                className="mr-5"
+                style={{ width: width * 0.6 }}
+                onPress={() => {
+                  setShowNutrientCategory(category);
+                }}
+              >
+                <View
+                  className="p-5 rounded-xl mb-2"
+                  style={{
+                    backgroundColor: `${color}15`,
+                    borderWidth: 1,
+                    borderColor: `${color}30`,
+                  }}
+                >
+                  <View className="flex-row justify-between items-center mb-3">
+                    <View
+                      className="w-12 h-12 rounded-full items-center justify-center"
+                      style={{ backgroundColor: color }}
+                    >
+                      <Icon size={24} color="#FFFFFF" />
+                    </View>
+                    <View
+                      className="px-3 py-1.5 rounded-full"
+                      style={{ backgroundColor: `${color}30` }}
+                    >
+                      <Text
+                        className="text-xs font-semibold"
+                        style={{ color: color }}
+                      >
+                        {categoryFoods.length} foods
+                      </Text>
+                    </View>
+                  </View>
+                  <Text
+                    className="text-lg font-bold"
+                    style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
+                  >
+                    {category}
+                  </Text>
+                  <Text
+                    className="text-xs mt-1.5"
+                    style={{ color: isDarkMode ? "#9CA3AF" : "#6B7280" }}
+                  >
+                    {category === "High Protein"
+                      ? "Foods rich in protein content"
+                      : category === "High Carbs"
+                      ? "Foods high in carbohydrates"
+                      : category === "High Fat"
+                      ? "Foods with healthy fat content"
+                      : category === "Lean Protein"
+                      ? "Low-calorie protein sources"
+                      : "Foods with balanced nutrients"}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  };
+
+  // Modal to explain K-means clustering
+  const KMeansExplanationModal = () => {
+    return (
+      <Modal
+        visible={showKMeansExplanation}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowKMeansExplanation(false)}
+      >
+        <BlurView intensity={40} tint="dark" style={{ flex: 1 }}>
+          <View className="flex-1 justify-end">
+            <View
+              className="rounded-t-3xl p-7"
+              style={{
+                backgroundColor: isDarkMode ? "#1E1E1E" : colors.background,
+              }}
+            >
+              <View className="flex-row justify-between items-center mb-6">
+                <Text
+                  className="text-2xl font-bold"
+                  style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
+                >
+                  K-Means Clustering
+                </Text>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => setShowKMeansExplanation(false)}
+                  className="p-2.5 rounded-full"
+                  style={{
+                    backgroundColor: isDarkMode
+                      ? "rgba(255,255,255,0.08)"
+                      : "rgba(0,0,0,0.03)",
+                  }}
+                >
+                  <X size={20} color={isDarkMode ? "#FFFFFF" : colors.text} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView className="mb-6" showsVerticalScrollIndicator={false}>
+                <Text
+                  className="text-base mb-4 leading-6"
+                  style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
+                >
+                  The K-means algorithm automatically groups foods based on
+                  their nutritional properties:
+                </Text>
+
+                <Text
+                  className="text-base mb-3 leading-6"
+                  style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
+                >
+                  • Foods are represented as points in 4-dimensional space
+                  (protein, carbs, fat, calories)
+                </Text>
+
+                <Text
+                  className="text-base mb-3 leading-6"
+                  style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
+                >
+                  • The algorithm creates 5 clusters by finding foods with
+                  similar nutritional profiles
+                </Text>
+
+                <Text
+                  className="text-base mb-3 leading-6"
+                  style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
+                >
+                  • Each cluster gets a name based on its centroid (average
+                  nutritional values)
+                </Text>
+
+                <Text
+                  className="text-base mb-3 leading-6"
+                  style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
+                >
+                  • Unlike the rule-based approach, K-means discovers natural
+                  groupings in the data
+                </Text>
+
+                <Text
+                  className="text-base mb-2 leading-6"
+                  style={{ color: isDarkMode ? "#FFFFFF" : colors.text }}
+                >
+                  You might notice differences between these clusters and the
+                  traditional categories - that's because K-means is finding
+                  patterns we might not immediately recognize!
+                </Text>
+              </ScrollView>
+
+              <TouchableOpacity
+                activeOpacity={0.8}
+                className="py-4 rounded-xl items-center"
+                style={{ backgroundColor: "#8B5CF6" }}
+                onPress={() => setShowKMeansExplanation(false)}
+              >
+                <Text className="text-white font-bold text-base">Got it</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </BlurView>
+      </Modal>
+    );
+  };
+
+  return (
+    <SafeAreaView
+      className="flex-1"
+      style={{ backgroundColor: isDarkMode ? "#000000" : colors.background }}
+    >
+      <StatusBar
+        barStyle={isDarkMode ? "light-content" : "dark-content"}
+        backgroundColor="transparent"
+        translucent
+      />
+      <Header />
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 120, paddingTop: 8 }}
+      >
+        {/* K-means section */}
+        <FoodsByKMeansSection />
+
+        <FoodsByNutrientSection />
       </ScrollView>
 
-      {/* Modal for All Foods */}
+      {/* Modals */}
       <AllFoodsModal />
-
-      {/* Modal for Nutrient Category */}
       <NutrientCategoryModal />
+      <KMeansExplanationModal />
     </SafeAreaView>
   );
 }
