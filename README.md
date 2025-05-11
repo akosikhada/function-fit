@@ -1,41 +1,51 @@
 # Function Fit
 
-## Overview
+<div align="center">
+  <img src="assets/images/logo.png" alt="Function Fit Logo" width="200"/>
+  <p><em>Your personal fitness companion for a stronger tomorrow</em></p>
+  
+  [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+  [![React Native](https://img.shields.io/badge/React%20Native-0.76-blue)](https://reactnative.dev/)
+  [![Expo](https://img.shields.io/badge/Expo-52.0-black)](https://expo.dev/)
+  [![Supabase](https://img.shields.io/badge/Supabase-2.49-green)](https://supabase.io/)
+</div>
 
-Function Fit is a modern fitness application designed to help users achieve their health and wellness goals. The app combines personalized workout planning, progress tracking, and motivational elements to create an engaging fitness experience.
+## 📱 Overview
 
-Built with React Native and Expo, Function Fit offers a seamless cross-platform experience with a clean, intuitive interface. The application leverages Supabase for user authentication and data management, ensuring your fitness data is securely stored and easily accessible across devices.
+Function Fit is a comprehensive mobile fitness application designed to help users track, plan, and achieve their fitness goals. Built with React Native and Expo, it offers a seamless cross-platform experience with an intuitive, modern interface that puts your fitness journey at your fingertips.
 
-## ✨ Features
+The app combines personalized workout planning, detailed progress tracking, and motivational elements to create an engaging fitness experience tailored to your needs. With secure authentication and data storage powered by Supabase, your fitness data is protected and accessible across all your devices.
+
+## 🚀 Features
 
 <div align="center">
   <table>
     <tr>
       <td align="center" width="33%">
         <h3>🏋️ Smart Workout Planning</h3>
-        <p>Access customized workout plans based on your fitness level and goals with detailed exercise instructions</p>
+        <p>Access customized workout plans tailored to your fitness level with detailed exercise instructions and progress tracking</p>
       </td>
       <td align="center" width="33%">
-        <h3>📊 Comprehensive Tracking</h3>
-        <p>Monitor daily steps, calories burned, workout completion, and long-term fitness progress visualizations</p>
+        <h3>📊 Progress Visualization</h3>
+        <p>Track your fitness journey with comprehensive metrics and beautiful data visualizations of your improvement over time</p>
       </td>
       <td align="center" width="33%">
-        <h3>🔄 Workout Logging</h3>
-        <p>Record and review your workout history with detailed metrics for performance analysis</p>
+        <h3>📝 Workout Logging</h3>
+        <p>Record and review your workout history with detailed metrics for sets, reps, weights, and performance analysis</p>
       </td>
     </tr>
     <tr>
       <td align="center" width="33%">
         <h3>🏆 Achievement System</h3>
-        <p>Stay motivated with workout streaks, milestone celebrations, and unlockable achievements</p>
+        <p>Stay motivated with workout streaks, milestone celebrations, and unlockable achievements that reward consistency</p>
       </td>
       <td align="center" width="33%">
-        <h3>👤 Profile Management</h3>
-        <p>Customize your profile with personal details, fitness goals, and track your fitness journey stats</p>
+        <h3>🍎 Nutrition Tracking</h3>
+        <p>Monitor your nutritional intake alongside your workouts for a holistic approach to fitness and health</p>
       </td>
       <td align="center" width="33%">
-        <h3>🔐 Secure Authentication</h3>
-        <p>Enjoy peace of mind with secure login and data storage through Supabase's authentication system</p>
+        <h3>📚 Exercise Library</h3>
+        <p>Access a comprehensive library of exercises with proper form instructions and video demonstrations</p>
       </td>
     </tr>
   </table>
@@ -43,11 +53,93 @@ Built with React Native and Expo, Function Fit offers a seamless cross-platform 
 
 ## 🛠️ Tech Stack
 
-- **Frontend**: React Native, Expo Router, NativeWind (TailwindCSS)
-- **Backend**: Supabase (PostgreSQL, Authentication, Storage)
-- **State Management**: React Context API
-- **Styling**: TailwindCSS, React Native components
-- **Development**: TypeScript, ESLint
+- **Frontend**:
+
+  - React Native 0.76
+  - Expo SDK 52
+  - Expo Router for navigation
+  - NativeWind (TailwindCSS) for styling
+  - React Native Reanimated for animations
+
+- **Backend**:
+
+  - Supabase (PostgreSQL database)
+  - Supabase Auth for user authentication
+  - Supabase Storage for image storage
+
+- **State Management**:
+
+  - React Context API
+  - Async Storage for local persistence
+
+- **UI Components**:
+  - Custom components with TailwindCSS
+  - Expo Vector Icons
+  - Expo Image
+  - Expo Blur, Linear Gradient
+
+## 📋 Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+- [Node.js](https://nodejs.org/) (v18 or newer)
+- [npm](https://www.npmjs.com/) or [Yarn](https://yarnpkg.com/)
+- [Expo CLI](https://docs.expo.dev/get-started/installation/)
+- [Supabase CLI](https://supabase.com/docs/guides/cli) (for backend development)
+
+## 🔧 Installation
+
+1. Clone the repository:
+
+   ```bash
+   git clone https://github.com/akosikhada/function-fit.git
+   cd function-fit
+   ```
+
+2. Install dependencies:
+
+   ```bash
+   npm install
+   # or
+   yarn install
+   ```
+
+3. Set up your Supabase project:
+
+   - Create a new project at [Supabase](https://app.supabase.com/)
+   - Follow the instructions in `supabase-setup-instructions.md`
+   - Configure your environment variables
+
+4. Start the development server:
+   ```bash
+   npm start
+   # or
+   yarn start
+   ```
+
+## 📱 Usage
+
+- **Sign Up/Login**: Create an account or sign in to access your personalized fitness journey
+- **Plan**: Browse and select workout plans tailored to your goals
+- **Workout**: Follow guided workouts with timer and exercise demonstrations
+- **Progress**: Track your fitness metrics and visualize your improvement
+- **Library**: Explore the exercise database with proper form instructions
+- **Settings**: Customize your profile and app preferences
+
+## 🚀 Deployment
+
+### Expo Build
+
+```bash
+eas build --platform ios
+eas build --platform android
+```
+
+### Publish Updates
+
+```bash
+eas update --branch production
+```
 
 ## 📝 License
 
